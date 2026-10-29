@@ -1,87 +1,123 @@
-# Orchestr v0.1 — Project Foundation
+# Orchestr — Version 0.2
 
-Orchestr is a full-stack web application currently in its initial development stage. Version 0.1 establishes the core technical foundation for local development and database connectivity.
+**Phase 2: Authentication and Basic User Interface**
 
-## Achievements in v0.1
+## Overview
 
-- **Next.js application setup:** Initialized a project using Next.js App Router, React, and TypeScript.
-- **Docker development environment:** Configured Docker and Docker Compose to run the application locally using Node.js 24 on Alpine Linux.
-- **Development workflow:** Configured source-code mounting and persistent Docker volumes to support Next.js hot reloading and dependency management.
-- **MongoDB Atlas integration:** Added the official MongoDB Node.js driver and a reusable database client in `lib/db.ts`.
-- **Database health check:** Implemented `/api/health` to verify database connectivity.
-- **Environment configuration:** Added `.env.example` for configuration placeholders and configured `.env.local` for local environment variables.
-- **Git configuration:** Added `.gitignore` and `.dockerignore` to exclude local secrets, dependencies, generated files, and unnecessary build-context files.
-- **Dependency installation:** Resolved the Docker dependency lockfile issue and verified that the Docker image builds successfully.
+Orchestr is a team workflow management application being developed to help teams organize work, assign responsibilities, track progress, and manage deliverables.
+
+Version 0.2 builds on the initial project foundation by introducing authentication and a basic user interface for account management.
 
 ## Technology Stack
 
-- Next.js App Router
-- React
-- TypeScript
-- Tailwind CSS
-- Node.js 24 (Alpine Linux)
-- Docker and Docker Compose
-- MongoDB Atlas
-- Official MongoDB Node.js driver
+- **Framework:** Next.js App Router
+- **Frontend:** React and TypeScript
+- **Styling:** Tailwind CSS
+- **Authentication:** Better Auth
+- **Database:** MongoDB Atlas
+- **Database Driver:** Official MongoDB Node.js driver
+- **Development Environment:** Docker and Docker Compose
+- **Version Control:** Git and GitHub
 
-## Running the Project Locally
+## Features Implemented
 
-### Prerequisites
+### 1. Authentication
 
-- Docker Desktop
-- A MongoDB Atlas cluster and database user
+- Email and password account registration.
+- Email and password login.
+- Password hashing handled by Better Auth.
+- Session creation and retrieval.
+- Sign-out functionality.
+- Protected dashboard access for authenticated users.
+- Redirects unauthenticated users to the login page.
+- Authentication error and loading states in the forms.
 
-### 1. Configure environment variables
+### 2. Basic User Interface
 
-Create a `.env.local` file in the project root, alongside `package.json` and `docker-compose.yml`.
+- Signup page for creating an account.
+- Login page for existing users.
+- Dashboard placeholder displaying the authenticated user's name and email.
+- Sign-out button on the dashboard.
+- Navigation links between the home, signup, login, and dashboard pages.
+- Basic loading indicators and error messages for authentication actions.
 
-Add your MongoDB Atlas connection details:
+### 3. Database Connectivity
+
+- MongoDB Atlas integration.
+- Shared MongoDB client for database operations and Better Auth.
+- Environment-based configuration for database and authentication settings.
+- Health endpoint at `/api/health` to verify database connectivity.
+
+### 4. Development Environment
+
+- Docker-based local development.
+- Docker Compose configuration for the Next.js application.
+- Environment variables loaded from `.env.local`.
+- `.env.example` provided as a template for required environment variables.
+- Git ignore rules for local environment files and generated files.
+
+## Authentication Flow
+
+The current authentication flow is:
+
+1. A new user registers with a name, email, and password.
+2. Better Auth creates the account and establishes a session.
+3. The authenticated user is redirected to the dashboard.
+4. The dashboard retrieves and displays the user's information.
+5. Signing out clears the session cookies and returns the user to the login page.
+6. Unauthenticated users attempting to access the dashboard are redirected to login.
+
+The authentication API has been manually verified for account creation, session retrieval, and sign-out.
+
+## Environment Configuration
+
+Create a `.env.local` file in the project root with the following variables:
 
 ```dotenv
-MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-host>/?retryWrites=true&w=majority"
+MONGODB_URI="your-mongodb-atlas-connection-string"
 MONGODB_DB="orchestr_dev"
+BETTER_AUTH_SECRET="your-generated-secret"
+BETTER_AUTH_URL="http://localhost:3000"
 ```
 
-Replace the placeholders with the actual values from MongoDB Atlas. Ensure special characters in the password are percent-encoded when included in the URI.
+Use your own MongoDB Atlas connection string and generate a secure, unique Better Auth secret.
 
-Never commit `.env.local` or expose database credentials.
+**Never commit `.env.local` or real credentials to GitHub.** Use `.env.example` to document the required variable names with safe placeholder values.
 
-### 2. Start Docker
+## Running Locally
 
-Open Docker Desktop and wait until the Docker engine is running.
-
-### 3. Start the application
-
-Run the following command from the project root:
+Start the application using Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-### 4. Access the application
+Open the application at:
 
-- Application: http://localhost:3000
-- Database health check: http://localhost:3000/api/health
+`http://localhost:3000`
 
-A successful database health check returns:
+Useful endpoints:
 
-```json
-{
-  "ok": true,
-  "database": "connected"
-}
-```
+- `/` — Home page
+- `/signup` — Account registration
+- `/login` — Login
+- `/dashboard` — Protected dashboard
+- `/api/health` — Database health check
+- `/api/auth/get-session` — Current authentication session
 
-### 5. Stop the application
+## Current Scope
 
-Press `Ctrl + C` in the terminal running Docker Compose, or use:
+Version 0.2 focuses on the authentication foundation and basic user interface. It does not yet implement the complete team workflow management system.
 
-```bash
-docker compose down
-```
+Planned future capabilities include organizations and memberships, teams, projects, task assignment, subtasks, deadlines, deliverable submissions, reviews, approvals, blockers, extension requests, and activity history.
 
-## Current Status
+## Version History
 
-The Next.js application runs locally in Docker, the Docker image builds successfully, and MongoDB Atlas connectivity has been verified through the health-check endpoint.
+- **Version 0.1:** Initial project foundation, Docker development setup, MongoDB Atlas connectivity, and health endpoint.
+- **Version 0.2:** Better Auth integration, signup and login pages, session handling, protected dashboard, and sign-out functionality.
 
-This version establishes the development and database foundation. The application-specific functionality has not yet been implemented in this milestone.
+## Status
+
+The authentication API has been tested locally, including account creation, session retrieval, and sign-out. The basic authentication UI has been implemented; browser-flow checks should be completed after the latest loading-state fixes.
+
+Orchestr remains under active development.

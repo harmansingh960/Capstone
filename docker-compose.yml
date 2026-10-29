@@ -5,8 +5,7 @@ services:
     ports:
       - "3000:3000"
     env_file:
-      - path: .env.local
-        required: false
+      - .env.local
     environment:
       # File-watching fallback for bind mounts on Docker Desktop.
       WATCHPACK_POLLING: "true"
