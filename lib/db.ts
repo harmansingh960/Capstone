@@ -1,5 +1,6 @@
 import "server-only";
 import { MongoClient, type Db } from "mongodb";
+import { resolveMongoDbName } from "@/lib/schema";
 
 // Reuse one client per runtime. In dev, hot reload re-evaluates modules, so the
 // client is cached on globalThis. On Vercel, it is reused across invocations of
@@ -24,7 +25,7 @@ export function getMongoClient(): MongoClient {
 }
 
 export function getDbName(): string {
-  return process.env.MONGODB_DB || "orchestr";
+  return resolveMongoDbName(process.env);
 }
 
 function getClientPromise(): Promise<MongoClient> {
