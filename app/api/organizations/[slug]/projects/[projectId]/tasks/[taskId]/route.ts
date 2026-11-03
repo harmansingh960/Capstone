@@ -1,29 +1,77 @@
 import { connection } from "next/server";
-import type { TaskDoc, TaskPriority, TaskStatus } from "@/lib/schema";
+import type {
+  MembershipRole,
+  ProjectStatus,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/schema";
 import {
+  enrichSingleTask,
   getOrganizationBySlug,
   getProjectById,
   getTaskById,
+  MOVE_TASK_WITH_DEPENDENCIES_MESSAGE,
   parseObjectId,
   requireSessionUserId,
+  serializeTaskAssignee,
   TenantAccessError,
   TenantValidationError,
   updateTask,
+  type EnrichedTaskItem,
+  type TaskDeadlineState,
+  type TaskDeliverableStatus,
+  type TaskDependencyItem,
   type UpdateTaskInput,
   type UserOrganization,
 } from "@/lib/tenancy";
 
+type TaskDependencyDto = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  prerequisiteTaskId: string;
+  prerequisiteTitle: string;
+  prerequisiteStatus: TaskStatus;
+  prerequisiteParentTaskId: string | null;
+  isBlocking: boolean;
+  createdBy: string;
+  createdAt: string;
+};
+
+type TaskAssigneeDto = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: MembershipRole | null;
+};
+
 type TaskDto = {
   id: string;
   projectId: string;
+  projectName: string;
+  projectStatus: ProjectStatus;
   parentTaskId: string | null;
+  parentTaskTitle: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId: string | null;
+  assignee: TaskAssigneeDto | null;
   deadline: string | null;
   approvalRequired: boolean;
+  isBlocked: boolean;
+  blockerCount: number;
+  dependencyCount: number;
+  dependencies: TaskDependencyDto[];
+  deliverableStatus: TaskDeliverableStatus | null;
+  isOverdue: boolean;
+  isDueToday: boolean;
+  isDueSoon: boolean;
+  deadlineState: TaskDeadlineState;
+  isStale: boolean;
+  lastActivityAt: string;
+  daysSinceActivity: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -46,26 +94,58 @@ const LIFECYCLE_CONFLICT_MESSAGES: ReadonlySet<string> = new Set([
   "Cannot modify tasks in an archived project.",
   "Cannot move a task into an archived project.",
   "Cannot move a task with subtasks to a different project.",
+  MOVE_TASK_WITH_DEPENDENCIES_MESSAGE,
   "Cannot convert a task that already has subtasks into a subtask.",
   "Subtasks must have a top-level parent task.",
   "Cannot mark task as done: deliverable approval is required and no deliverable has been submitted.",
   "Cannot mark task as done: the latest deliverable submission has not been approved.",
 ]);
 
-function toTaskDto(task: TaskDoc): TaskDto {
+function toTaskDependencyDto(item: TaskDependencyItem): TaskDependencyDto {
   return {
-    id: task._id.toHexString(),
-    projectId: task.projectId.toHexString(),
-    parentTaskId: task.parentTaskId ? task.parentTaskId.toHexString() : null,
-    title: task.title,
-    description: task.description ?? null,
-    status: task.status,
-    priority: task.priority,
-    assigneeId: task.assigneeId,
-    deadline: task.deadline ? task.deadline.toISOString() : null,
-    approvalRequired: task.approvalRequired === true,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
+    id: item.id,
+    projectId: item.projectId,
+    taskId: item.taskId,
+    prerequisiteTaskId: item.prerequisiteTaskId,
+    prerequisiteTitle: item.prerequisiteTitle,
+    prerequisiteStatus: item.prerequisiteStatus,
+    prerequisiteParentTaskId: item.prerequisiteParentTaskId,
+    isBlocking: item.isBlocking,
+    createdBy: item.createdBy,
+    createdAt: item.createdAt.toISOString(),
+  };
+}
+
+function toTaskDto(item: EnrichedTaskItem): TaskDto {
+  return {
+    id: item.id,
+    projectId: item.projectId,
+    projectName: item.projectName,
+    projectStatus: item.projectStatus,
+    parentTaskId: item.parentTaskId,
+    parentTaskTitle: item.parentTaskTitle,
+    title: item.title,
+    description: item.description,
+    status: item.status,
+    priority: item.priority,
+    assigneeId: item.assigneeId,
+    assignee: serializeTaskAssignee(item.assignee),
+    deadline: item.deadline ? item.deadline.toISOString() : null,
+    approvalRequired: item.approvalRequired,
+    isBlocked: item.isBlocked,
+    blockerCount: item.blockerCount,
+    dependencyCount: item.dependencyCount,
+    dependencies: item.dependencies.map(toTaskDependencyDto),
+    deliverableStatus: item.deliverableStatus,
+    isOverdue: item.isOverdue,
+    isDueToday: item.isDueToday,
+    isDueSoon: item.isDueSoon,
+    deadlineState: item.deadlineState,
+    isStale: item.isStale,
+    lastActivityAt: item.lastActivityAt.toISOString(),
+    daysSinceActivity: item.daysSinceActivity,
+    createdAt: item.createdAt.toISOString(),
+    updatedAt: item.updatedAt.toISOString(),
   };
 }
 
@@ -260,8 +340,15 @@ export async function PATCH(
       );
     }
 
+    const enriched = await enrichSingleTask(
+      organization._id,
+      project,
+      updatedTask,
+      request.headers,
+    );
+
     return Response.json(
-      { task: toTaskDto(updatedTask) },
+      { task: toTaskDto(enriched) },
       { status: 200 },
     );
   } catch (error) {

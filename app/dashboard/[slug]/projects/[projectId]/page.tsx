@@ -161,12 +161,24 @@ async function ProjectTasksWorkspace({
   return (
     <>
       <div className="flex items-center justify-between gap-4">
-        <Link
-          href={`/dashboard/${encodeURIComponent(organization.slug)}`}
-          className="text-sm underline"
-        >
-          ← Back to {organization.name}
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/dashboard/${encodeURIComponent(organization.slug)}`}
+            className="text-sm underline"
+          >
+            ← Back to {organization.name}
+          </Link>
+          {organization.role === "admin" ||
+          organization.role === "manager" ? (
+            <Link
+              href={`/dashboard/${encodeURIComponent(organization.slug)}/supervision`}
+              data-testid="project-supervision-link"
+              className="rounded border border-zinc-300 px-2.5 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Supervision &amp; Reports
+            </Link>
+          ) : null}
+        </div>
         <SignOutButton />
       </div>
 

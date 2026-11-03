@@ -2,8 +2,68 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type SubmitEvent } from "react";
-import type { MembershipRole, ProjectStatus } from "@/lib/schema";
+import { useCallback, useEffect, useRef, useState, type SubmitEvent } from "react";
+import type {
+  ActivityEventType,
+  MembershipRole,
+  ProjectStatus,
+} from "@/lib/schema";
+
+type OrgActivityFieldChange = {
+  field: string;
+  before: string | number | boolean | null;
+  after: string | number | boolean | null;
+  beforeDisplay: string;
+  afterDisplay: string;
+};
+
+type OrgActivityEntry = {
+  id: string;
+  projectId: string | null;
+  taskId: string | null;
+  eventType: ActivityEventType;
+  actorId: string;
+  actor: {
+    userId: string;
+    name: string | null;
+    email: string | null;
+    role: MembershipRole | null;
+    label: string;
+  };
+  summary: string;
+  changes: OrgActivityFieldChange[];
+  createdAt: string;
+};
+
+const ORG_FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  title: "Title",
+  description: "Description",
+  status: "Status",
+  priority: "Priority",
+  assigneeId: "Assignee",
+  deadline: "Deadline",
+  approvalRequired: "Approval requirement",
+  parentTaskId: "Parent task",
+  prerequisiteTaskId: "Prerequisite",
+  submissionNumber: "Submission",
+  decision: "Review decision",
+};
+
+function formatActivityTimestamp(isoDate: string): string {
+  const parsed = new Date(isoDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return isoDate;
+  }
+  return parsed.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+}
 
 export type ProjectSummary = {
   id: string;
@@ -92,7 +152,176 @@ export function ProjectsClient({
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const actionInFlight = useRef(false);
 
+  // Organization activity timeline state
+  const [orgActivities, setOrgActivities] = useState<OrgActivityEntry[]>([]);
+  const [orgActivityCursor, setOrgActivityCursor] = useState<string | null>(
+    null,
+  );
+  const [orgActivityLoading, setOrgActivityLoading] = useState(true);
+  const [orgActivityLoadingMore, setOrgActivityLoadingMore] = useState(false);
+  const [orgActivityError, setOrgActivityError] = useState<string | null>(null);
+
   const baseApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects`;
+  const orgActivityApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/activity`;
+
+  const refreshOrgActivity = useCallback(async () => {
+    setOrgActivityLoading(true);
+    setOrgActivityError(null);
+    try {
+      const response = await fetch(`${orgActivityApiUrl}?limit=15`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Unable to load organization activity.",
+        );
+        setOrgActivityError(message);
+        return;
+      }
+
+      const data = (await response.json()) as {
+        activities?: OrgActivityEntry[];
+        nextCursor?: string | null;
+      };
+      setOrgActivities(Array.isArray(data.activities) ? data.activities : []);
+      setOrgActivityCursor(
+        typeof data.nextCursor === "string" ? data.nextCursor : null,
+      );
+    } catch {
+      setOrgActivityError(
+        "Could not load organization activity. Please try again.",
+      );
+    } finally {
+      setOrgActivityLoading(false);
+    }
+  }, [orgActivityApiUrl, router]);
+
+  const loadMoreOrgActivity = useCallback(async () => {
+    if (!orgActivityCursor || orgActivityLoadingMore) return;
+    setOrgActivityLoadingMore(true);
+    setOrgActivityError(null);
+
+    try {
+      const params = new URLSearchParams({
+        limit: "15",
+        cursor: orgActivityCursor,
+      });
+      const response = await fetch(
+        `${orgActivityApiUrl}?${params.toString()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Unable to load more organization activity.",
+        );
+        setOrgActivityError(message);
+        return;
+      }
+
+      const data = (await response.json()) as {
+        activities?: OrgActivityEntry[];
+        nextCursor?: string | null;
+      };
+      const incoming = Array.isArray(data.activities) ? data.activities : [];
+      setOrgActivities((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        const merged = [...prev];
+        for (const item of incoming) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            merged.push(item);
+          }
+        }
+        return merged;
+      });
+      setOrgActivityCursor(
+        typeof data.nextCursor === "string" ? data.nextCursor : null,
+      );
+    } catch {
+      setOrgActivityError(
+        "Could not load more organization activity. Please try again.",
+      );
+    } finally {
+      setOrgActivityLoadingMore(false);
+    }
+  }, [orgActivityApiUrl, orgActivityCursor, orgActivityLoadingMore, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchInitialOrgActivity() {
+      try {
+        const response = await fetch(`${orgActivityApiUrl}?limit=15`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
+
+        if (!response.ok) {
+          const message = await readApiError(
+            response,
+            "Unable to load organization activity.",
+          );
+          if (!cancelled) {
+            setOrgActivityError(message);
+          }
+          return;
+        }
+
+        const data = (await response.json()) as {
+          activities?: OrgActivityEntry[];
+          nextCursor?: string | null;
+        };
+        if (!cancelled) {
+          setOrgActivities(
+            Array.isArray(data.activities) ? data.activities : [],
+          );
+          setOrgActivityCursor(
+            typeof data.nextCursor === "string" ? data.nextCursor : null,
+          );
+          setOrgActivityError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setOrgActivityError(
+            "Could not load organization activity. Please try again.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setOrgActivityLoading(false);
+        }
+      }
+    }
+
+    void fetchInitialOrgActivity();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgActivityApiUrl, router]);
 
   async function refreshProjects(filter: StatusFilter) {
     setListLoading(true);
@@ -178,6 +407,7 @@ export function ProjectsClient({
       setCreateDescription("");
       setCreateSuccess("Project created.");
       await refreshProjects(statusFilter);
+      void refreshOrgActivity();
       router.refresh();
     } catch {
       setCreateError("Could not reach the server. Please try again.");
@@ -252,6 +482,7 @@ export function ProjectsClient({
       setEditingProjectId(null);
       setActionSuccess("Project updated.");
       await refreshProjects(statusFilter);
+      void refreshOrgActivity();
       router.refresh();
     } catch {
       setActionError("Could not reach the server. Please try again.");
@@ -305,6 +536,7 @@ export function ProjectsClient({
           : `Unarchived "${project.name}".`,
       );
       await refreshProjects(statusFilter);
+      void refreshOrgActivity();
       router.refresh();
     } catch {
       setActionError("Could not reach the server. Please try again.");
@@ -582,6 +814,129 @@ export function ProjectsClient({
           </button>
         </form>
       )}
+
+      <section
+        aria-label="Organization Activity"
+        className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-medium">Organization Activity</h2>
+            <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+              {orgActivities.length}
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={orgActivityLoading || orgActivityLoadingMore}
+            onClick={() => void refreshOrgActivity()}
+            className="rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {orgActivityLoading
+              ? "Loading…"
+              : orgActivityError
+                ? "Retry"
+                : "Refresh"}
+          </button>
+        </div>
+
+        {orgActivityError && (
+          <p role="alert" className="text-sm text-red-600">
+            {orgActivityError}
+          </p>
+        )}
+
+        {orgActivityLoading && orgActivities.length === 0 ? (
+          <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+            Loading organization activity…
+          </p>
+        ) : orgActivities.length === 0 ? (
+          <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+            No activity recorded for this organization yet.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <ol className="flex flex-col gap-2">
+              {orgActivities.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex flex-col gap-1.5 rounded border border-zinc-200/80 bg-zinc-50/70 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900/50"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                      {entry.summary}
+                    </span>
+                    <span className="text-zinc-500">
+                      {formatActivityTimestamp(entry.createdAt)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-zinc-500">
+                    <span>
+                      By{" "}
+                      <strong className="font-normal text-zinc-700 dark:text-zinc-300">
+                        {entry.actor?.name ?? entry.actorId}
+                        {entry.actor?.role ? ` · ${entry.actor.role}` : ""}
+                      </strong>
+                    </span>
+                  </div>
+                  {Array.isArray(entry.changes) && entry.changes.length > 0 && (
+                    <ul className="mt-0.5 flex flex-col gap-1 border-l-2 border-zinc-200 pl-2.5 text-[11px] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+                      {entry.changes.map((change, idx) => {
+                        const fieldLabel =
+                          ORG_FIELD_LABELS[change.field] ?? change.field;
+                        const isTransition =
+                          change.before !== null && change.after !== null;
+                        return (
+                          <li
+                            key={`${entry.id}-${change.field}-${idx}`}
+                            className="flex flex-wrap items-center gap-1"
+                          >
+                            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                              {fieldLabel}:
+                            </span>
+                            {isTransition ||
+                            entry.eventType.endsWith("_changed") ||
+                            entry.eventType.endsWith(".updated") ||
+                            entry.eventType === "project.archived" ||
+                            entry.eventType === "project.unarchived" ||
+                            entry.eventType === "review.decision_updated" ? (
+                              <>
+                                <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-zinc-700 line-through dark:bg-zinc-800 dark:text-zinc-400">
+                                  {change.beforeDisplay}
+                                </span>
+                                <span aria-hidden="true">→</span>
+                                <span className="rounded bg-emerald-100/70 px-1.5 py-0.5 font-medium text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                  {change.afterDisplay}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="rounded bg-zinc-200/60 px-1.5 py-0.5 font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                                {change.afterDisplay}
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ol>
+            {orgActivityCursor && (
+              <button
+                type="button"
+                disabled={orgActivityLoadingMore}
+                onClick={() => void loadMoreOrgActivity()}
+                className="self-start rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                {orgActivityLoadingMore
+                  ? "Loading more…"
+                  : "Load more activity"}
+              </button>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
