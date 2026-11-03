@@ -1,230 +1,395 @@
-# Orchestr — Phase 4: Workflow Management
+# Phase 5 — Supervision & Reports
 
-## Overview
+**Status:** Completed and independently verified  
+**Version:** Phase 5  
+**Scope:** Phases 5.1–5.5
 
-Phase 4 completes Orchestr's core workflow-management functionality.
+## 1. Overview
 
-It introduces task dependencies, blocker tracking, improved deliverable and review workflows, review transparency, and a complete activity history and audit trail.
+Phase 5 introduces organization-wide supervision and reporting capabilities to Orchestr.
 
-The objective is to provide teams with a transparent workflow in which members can understand what needs to be done, what is blocked, what requires review, and what has happened throughout a project's lifecycle.
+It provides administrators and managers with a centralized view of organizational operations, project health, task progress, overdue work, inactive tasks, team workload, and time-based reports.
 
-## Phase 4 Completion Status
+The objective is to help supervisors identify delays, monitor team performance, understand project progress, and make informed operational decisions without relying on fragmented manual updates.
 
-| Subphase | Feature | Status |
-|---|---|---|
-| 4.1 | Task Dependencies and Blockers | Complete |
-| 4.2 | Deliverable Workflow Improvements | Complete |
-| 4.3 | Review-Flow Improvements | Complete |
-| 4.4 | Activity History and Audit Trail | Complete |
+## 2. Features Implemented
 
-## 1. Phase 4.1 — Task Dependencies and Blockers
+### 5.1 — Supervisor Dashboard
 
-### Features
-- Create dependencies between tasks.
-- Support multiple prerequisites.
-- Prevent self-dependencies.
-- Prevent circular dependencies.
-- Detect blocked tasks dynamically.
-- Automatically reflect prerequisite completion.
-- Restore blocked status when a prerequisite is reopened.
-- Allow Admins and Managers to manage dependencies.
-- Keep dependency information visible to Members.
-- Prevent dependency mutations in archived projects.
+Added a dedicated **Supervision & Reports** dashboard for organization administrators and managers.
 
-### Blocker behavior
+The dashboard provides:
 
-A task is considered blocked when one or more prerequisite tasks are not completed.
+- Active project count.
+- Total task count.
+- To Do, In Progress, and Completed task counts.
+- Overdue task count.
+- Stale task count.
+- Blocked task count.
+- Tasks awaiting submission.
+- Tasks awaiting review.
+- Tasks due today.
+- Tasks due soon.
+- Project-level operational health summaries.
+- Overdue and stale task attention queues.
 
-Blocked status is derived dynamically rather than stored as a separate manually maintained task status.
+Project summaries include task counts and completion percentages.
 
-## 2. Phase 4.2 — Deliverable Workflow Improvements
+**Completion calculation:**
 
-### Features
-- Submit deliverables against tasks and subtasks.
-- Preserve complete submission history.
-- Identify the current submission.
-- Identify superseded submissions.
-- Require feedback when requesting changes.
-- Support revised deliverable submissions.
-- Display previous review feedback.
-- Derive deliverable status at task level.
-- Filter tasks by deliverable status.
-- Retrieve deliverables and reviews efficiently using batched queries.
+`Completion % = (Completed top-level tasks / Total top-level tasks) × 100`
 
-### Deliverable statuses
+Subtasks are excluded from top-level completion calculations and reported separately to avoid double-counting.
 
-- Needs Submission
-- In Review
-- Changes Requested
-- Approved
+### 5.2 — Advanced Task Filters & Sorting
 
-Task completion continues to depend on the latest deliverable's approval when approval is required.
+Implemented organization-wide and project-level task filtering.
 
-## 3. Phase 4.3 — Review-Flow Improvements
+Supported filters include:
 
-### Features
-- Deliverable review queue through status filters.
-- Submission numbering.
-- Revision identification.
-- Previous-review feedback context.
-- Reviewer identity and timestamps.
-- Self-review indicator.
-- Self-approved indicator.
-- Latest decision indicator.
-- Updated decision indicator.
-- Preserve all historical review decisions.
+- Project.
+- Task status.
+- Priority.
+- Assignee.
+- Deadline range.
+- Overdue status.
+- Due-today status.
+- Due-soon status.
+- Stale status.
+- Blocked status.
+- Deliverable status.
+- Parent task and subtask scope.
 
-### Review transparency
+Multiple filters can be combined using AND logic.
 
-Reviews are displayed newest first.
+Supported sorting:
 
-Earlier decisions remain visible and are never overwritten by subsequent reviews.
+- Deadline.
+- Priority.
+- Creation date.
+- Last meaningful activity.
+- Task status.
 
-Self-review is identified when the reviewer and deliverable submitter are the same user.
+Additional functionality:
 
-## 4. Phase 4.4 — Activity History and Audit Trail
+- Ascending and descending sorting.
+- Pagination.
+- Page-size validation.
+- Filter reset.
+- Server-side query validation.
 
-### Activity recording
+### 5.3 — Overdue & Due-Date Detection
 
-Orchestr records activity for:
+Overdue and deadline health are calculated dynamically when task data is requested.
 
-**Projects**
-- Project created.
-- Project updated.
-- Project archived.
-- Project unarchived.
+Supported deadline states:
 
-**Tasks and subtasks**
-- Created.
-- Updated.
-- Status changed.
-- Priority changed.
-- Assignee changed.
-- Deadline changed.
-- Approval requirement changed.
-
-**Dependencies**
-- Dependency added.
-- Dependency removed.
-
-**Deliverables and reviews**
-- Deliverable submitted.
-- Review approved.
-- Changes requested.
-- Review decision updated.
-
-### Activity timelines
-
-Activity can be viewed at three levels:
-
-1. Organization activity.
-2. Project activity.
-3. Task and subtask activity.
-
-Activity entries include:
-- Actor identity.
-- Event type.
-- Description.
-- Timestamp.
-- Relevant before-and-after changes.
-- Related project or task context.
-
-### Technical characteristics
-
-- Organization-scoped activity records.
-- Append-only application behavior.
-- Server-derived actor identity.
-- MongoDB schema validation.
-- Compound indexes for timeline retrieval.
-- Deterministic newest-first ordering.
-- Cursor-based pagination.
-- Batched actor and membership hydration.
-- Read-only activity API endpoints.
-- Tenant isolation and membership verification.
-
-### Activity API endpoints
-
-Organization:
-`GET /api/organizations/[slug]/activity`
-
-Project:
-`GET /api/organizations/[slug]/projects/[projectId]/activity`
-
-Task:
-`GET /api/organizations/[slug]/projects/[projectId]/tasks/[taskId]/activity`
-
-Default activity page size: 25
-
-Maximum activity page size: 100
-
-## 5. Permissions and Security
-
-Phase 4 preserves existing Orchestr authentication and authorization rules.
-
-- Authentication is handled through Better Auth.
-- Actor identity is derived from the authenticated session.
-- Organization membership is verified before accessing organization resources.
-- Activity retrieval is tenant-scoped.
-- Activity endpoints are read-only.
-- Members cannot approve deliverables.
-- Only authorized roles can manage dependencies and reviews.
-- Archived projects preserve historical read access while restricting mutations.
-
-## 6. Database Changes
-
-Phase 4 introduced the `activities` collection.
-
-Activity indexes:
-
-- `org_created_id`
-- `org_project_created_id`
-- `org_project_task_created_id`
-
-The activity collection uses MongoDB document validation.
-
-Activity writes use the existing transaction wrapper. MongoDB Atlas replica-set transactions provide atomicity between domain mutations and their activity records.
-
-Standalone MongoDB fallback does not provide equivalent multi-document transaction guarantees.
-
-## 7. Verification Summary
-
-Reported verification results:
-
-| Area | Result |
+| State | Meaning |
 |---|---|
-| Phase 4.1 dependency verification | Passed |
-| Phase 4.2 deliverable verification | Passed |
-| Phase 4.3 review verification | 12/12 passed |
-| Phase 4.4 activity verification | 50/50 passed |
-| Phase 4.4 targeted fixes | 9/9 passed |
-| TypeScript | Passed |
-| ESLint | Passed |
+| `overdue` | Deadline has passed and task is incomplete |
+| `due_today` | Task is due on the current UTC calendar day |
+| `due_soon` | Deadline falls within the next seven UTC calendar days |
+| `upcoming` | Deadline is beyond the due-soon window |
+| `no_deadline` | No deadline is assigned |
+| `completed` | Task is completed |
+| `archived` | Task belongs to an archived project |
 
-Phase 4.4 verification was performed against the development database `orchestr_dev`.
+Rules:
 
-These results reflect the reported verification runs and do not replace production deployment testing.
+- Completed tasks are not classified as overdue.
+- Tasks in archived projects are excluded from overdue and due-soon calculations.
+- Tasks without deadlines are not overdue.
+- Date-only deadlines stored at midnight UTC are evaluated through the end of that UTC calendar day.
+- Explicit timestamps are compared directly.
+- The default due-soon window is seven UTC calendar days.
 
-## 8. Phase 4 Completion
+No redundant overdue or due-soon boolean fields are stored in MongoDB.
 
-Phase 4 is functionally complete.
+### 5.4 — Stale Task Detection
 
-Orchestr now supports:
-- Task dependencies and blocker tracking.
-- Deliverable submissions and revisions.
-- Review and approval workflows.
-- Transparent review history.
-- Organization, project and task activity timelines.
-- Historical activity and audit records.
+Implemented activity-backed task inactivity monitoring.
 
-## 9. Next Development Phase
+Default stale threshold:
 
-**Phase 5 — Supervision**
+`DEFAULT_STALE_THRESHOLD_DAYS = 7`
 
-Planned functionality:
-- Supervisor dashboard.
-- Advanced task and project filters.
-- Overdue-task detection.
-- Stale-task detection.
-- Progress monitoring.
-- Reporting and operational visibility.
+The threshold can be configured between 1 and 365 days.
 
+Last meaningful activity is calculated using the existing `activities` collection.
+
+Meaningful activity includes:
+
+- Task creation.
+- Subtask creation.
+- Task updates.
+- Status changes.
+- Priority changes.
+- Assignee changes.
+- Deadline changes.
+- Approval requirement changes.
+- Dependency additions and removals.
+- Deliverable submissions.
+- Review approvals.
+- Changes-requested decisions.
+- Updated review decisions.
+
+If no matching activity exists, the system falls back to:
+
+`task.updatedAt ?? task.createdAt`
+
+A task is considered stale when:
+
+`Current time - Last meaningful activity >= Stale threshold`
+
+Stale detection applies only to incomplete tasks in active projects.
+
+The implementation uses batched activity aggregation rather than performing an individual activity query for every task.
+
+### 5.5 — Progress Monitoring & Reports
+
+Implemented supervision reporting for project progress, team workload, and time-based task activity.
+
+**Project progress reports**
+
+- Total top-level tasks.
+- Completed tasks.
+- Incomplete tasks.
+- Completion percentage.
+- Separate subtask summaries.
+
+**Team workload reports**
+
+- Assigned task counts by team member.
+- Workload distribution.
+- Unassigned task counts.
+
+**Time-based reports**
+
+- Tasks created within a selected date range.
+- Tasks completed within a selected date range.
+- Overdue task counts.
+- Stale task counts.
+
+Completion reporting uses task creation timestamps and `task.status_changed` activity records, with an `updatedAt` fallback for older completed tasks.
+
+Historical reporting limitations are retained where the underlying records do not contain complete historical information.
+
+## 3. API Routes
+
+### Supervisor dashboard
+
+`GET /api/organizations/[slug]/supervision`
+
+Returns:
+
+- Organization operational metrics.
+- Project health summaries.
+- Overdue task highlights.
+- Stale task highlights.
+
+Access: Admin and Manager.
+
+### Organization-wide supervision task explorer
+
+`GET /api/organizations/[slug]/supervision/tasks`
+
+Returns filtered, sorted, enriched, and paginated organization-wide task results.
+
+Access: Admin and Manager.
+
+### Organization task alias
+
+`GET /api/organizations/[slug]/tasks`
+
+Provides the organization-wide task endpoint through the supervision task route.
+
+### Supervision reports
+
+`GET /api/organizations/[slug]/supervision/reports`
+
+Returns project progress, team workload, and time-based reporting data.
+
+Access: Admin and Manager.
+
+### Organization reports alias
+
+`GET /api/organizations/[slug]/reports`
+
+Provides the organization reports endpoint through the supervision reports route.
+
+### Project task listing
+
+`GET /api/organizations/[slug]/projects/[projectId]/tasks`
+
+Supports advanced project-level filters, sorting, pagination, and enriched task health information.
+
+### Project task creation
+
+`POST /api/organizations/[slug]/projects/[projectId]/tasks`
+
+Preserves existing task creation functionality and validation.
+
+### Task updates
+
+`PATCH /api/organizations/[slug]/projects/[projectId]/tasks/[taskId]`
+
+Returns updated task information with enriched health fields and serialized assignee data.
+
+## 4. Backend Architecture
+
+The majority of Phase 5 business logic is implemented in:
+
+`lib/tenancy.ts`
+
+Important helpers include:
+
+| Helper | Responsibility |
+|---|---|
+| `computeTaskDeadlineHealth` | Dynamic deadline classification |
+| `computeTaskStaleHealth` | Stale task calculation |
+| `getTasksLastActivityMap` | Batched task activity lookup |
+| `enrichSingleTask` | Enriches task data with health and related information |
+| `sortEnrichedTasks` | Deterministic task sorting |
+| `queryProjectTasks` | Project-level filtering and pagination |
+| `queryOrganizationTasks` | Organization-wide supervisory task queries |
+| `getSupervisorDashboard` | Dashboard aggregation |
+| `getSupervisionReports` | Progress, workload, and time-based reports |
+| `serializeTaskAssignee` | Maps backend assignee data to client-facing DTO format |
+
+### Task enrichment
+
+Enriched task responses can include:
+
+- `isOverdue`
+- `isDueToday`
+- `isDueSoon`
+- `deadlineState`
+- `isStale`
+- `lastActivityAt`
+- `daysSinceActivity`
+- `projectName`
+- `projectStatus`
+- `parentTaskTitle`
+- `assignee`
+
+Assignee serialization maps the backend `userId` field to the client-facing `id` field while preserving the member's name, email, and role.
+
+## 5. Database and Indexes
+
+**Schema changes:** None required.
+
+Phase 5 reuses existing MongoDB collections:
+
+- `organizations`
+- `memberships`
+- `projects`
+- `tasks`
+- `task_dependencies`
+- `deliverables`
+- `reviews`
+- `activities`
+
+Existing compound indexes are reused for task filtering, deadline queries, assignment lookup, project scoping, and activity retrieval.
+
+No redundant overdue or stale fields are persisted.
+
+## 6. Security and Permissions
+
+Phase 5 preserves the existing authentication, organization membership, and role-based authorization architecture.
+
+**Admin**
+- Full organization supervision access.
+- Dashboard and reporting access.
+- Organization-wide task exploration.
+
+**Manager**
+- Full organization supervision access.
+- Dashboard and reporting access.
+- Organization-wide task exploration.
+
+**Member**
+- Cannot access organization-wide supervision dashboards or reports.
+- Can continue using permitted project-level task filters and health indicators.
+
+Security controls include:
+
+- Better Auth session verification.
+- Server-side role enforcement.
+- Organization-scoped database queries.
+- Cross-organization resource isolation.
+- Rejection of unauthorized project IDs.
+- Validation of filter and sorting parameters.
+- Read-only dashboard and report aggregation.
+
+Unauthorized members receive a 403 response from supervisory APIs. Non-members receive a not-found response for organization-scoped resources.
+
+## 7. UI Implementation
+
+Added the supervision page:
+
+`/dashboard/[slug]/supervision`
+
+Main sections:
+
+1. Organization Operational Overview.
+2. Project Health & Operational Summary.
+3. Overdue Attention Queue.
+4. Stale Attention Queue.
+5. Advanced Project & Task Explorer.
+6. Progress Monitoring.
+7. Team Workload.
+8. Time-Based Reports.
+
+Navigation links are displayed for admin and manager roles.
+
+Project task pages also display task health badges and last meaningful activity information.
+
+The supervision interface supports responsive layouts for narrower mobile viewports.
+
+## 8. Independent Verification Results
+
+Phase 5 underwent two independent verification passes.
+
+### Initial backend verification
+
+| Test area | Result |
+|---|---:|
+| Backend integration tests | 55/55 passed |
+| Supervisor dashboard calculations | PASS |
+| Advanced filters and sorting | PASS |
+| Overdue detection | PASS |
+| Stale detection | PASS |
+| Progress and workload reports | PASS |
+| Authentication and tenant isolation | PASS |
+| Focused Phase 4 regression | PASS |
+
+The first verification identified frontend integration issues, which were corrected in a separate implementation pass.
+
+### Final targeted verification
+
+| Check | Result |
+|---|---:|
+| TypeScript (`npx tsc --noEmit`) | PASS — 0 errors |
+| ESLint (`npm run lint`) | PASS — 0 errors, 0 warnings |
+| Supervision page compilation | PASS |
+| Admin dashboard access | PASS |
+| Manager dashboard access | PASS |
+| Member access restriction | PASS |
+| Assignee serialization | PASS — all 5 locations |
+| Time-report contract | PASS |
+| Browser rendering and hydration | PASS |
+| Interactive dashboard controls | PASS |
+| Mobile responsive layout | PASS |
+| Focused Phase 4 regression | PASS |
+
+**Final Phase 5 verification status: PASS.**
+
+## 9. Completion Summary
+
+Phase 5 establishes the supervisory and reporting layer of Orchestr.
+
+The system now supports organization-wide operational visibility, project health monitoring, deadline tracking, inactivity detection, advanced task exploration, team workload reporting, and progress monitoring.
+
+All Phase 5.1–5.5 functionality has been independently verified.
+
+**Next planned development phase: Phase 6 — Meetings & Action Items.**

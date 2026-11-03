@@ -210,6 +210,14 @@ export type TaskSummary = {
   dependencies: TaskDependencyItem[];
   // Deliverable workflow status – populated by GET /tasks and PATCH /tasks/[id]
   deliverableStatus: TaskDeliverableStatus | null;
+  // Phase 5 health & staleness fields
+  isOverdue?: boolean;
+  isDueToday?: boolean;
+  isDueSoon?: boolean;
+  deadlineState?: string;
+  isStale?: boolean;
+  lastActivityAt?: string;
+  daysSinceActivity?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -2035,6 +2043,24 @@ export function TasksClient({
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [deliverableStatusFilter, setDeliverableStatusFilter] =
     useState<DeliverableStatusFilterOption>("all");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | TaskPriority>(
+    "all",
+  );
+  const [overdueFilter, setOverdueFilter] = useState<"all" | "true" | "false">(
+    "all",
+  );
+  const [staleFilter, setStaleFilter] = useState<"all" | "true" | "false">(
+    "all",
+  );
+  const [blockedFilter, setBlockedFilter] = useState<"all" | "true" | "false">(
+    "all",
+  );
+  const [deadlineFromFilter, setDeadlineFromFilter] = useState<string>("");
+  const [deadlineToFilter, setDeadlineToFilter] = useState<string>("");
+  const [sortByFilter, setSortByFilter] = useState<
+    "createdAt" | "deadline" | "priority" | "lastActivity" | "status"
+  >("createdAt");
+  const [sortOrderFilter, setSortOrderFilter] = useState<"asc" | "desc">("asc");
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -2286,13 +2312,34 @@ export function TasksClient({
     return parentTask.assigneeId === currentUserId;
   }
 
+  type AdvancedFilterOverrides = {
+    priority?: "all" | TaskPriority;
+    overdue?: "all" | "true" | "false";
+    stale?: "all" | "true" | "false";
+    blocked?: "all" | "true" | "false";
+    deadlineFrom?: string;
+    deadlineTo?: string;
+    sortBy?: "createdAt" | "deadline" | "priority" | "lastActivity" | "status";
+    sortOrder?: "asc" | "desc";
+  };
+
   async function refreshTasks(
-    nextStatusFilter: StatusFilter,
-    nextAssigneeFilter: string,
+    nextStatusFilter: StatusFilter = statusFilter,
+    nextAssigneeFilter: string = assigneeFilter,
     nextDeliverableStatusFilter: DeliverableStatusFilterOption = deliverableStatusFilter,
+    overrides?: AdvancedFilterOverrides,
   ) {
     setListLoading(true);
     setListError(null);
+
+    const effPriority = overrides?.priority ?? priorityFilter;
+    const effOverdue = overrides?.overdue ?? overdueFilter;
+    const effStale = overrides?.stale ?? staleFilter;
+    const effBlocked = overrides?.blocked ?? blockedFilter;
+    const effDeadlineFrom = overrides?.deadlineFrom ?? deadlineFromFilter;
+    const effDeadlineTo = overrides?.deadlineTo ?? deadlineToFilter;
+    const effSortBy = overrides?.sortBy ?? sortByFilter;
+    const effSortOrder = overrides?.sortOrder ?? sortOrderFilter;
 
     const params = new URLSearchParams();
     if (nextStatusFilter !== "all") {
@@ -2305,6 +2352,28 @@ export function TasksClient({
     }
     if (nextDeliverableStatusFilter !== "all") {
       params.set("deliverableStatus", nextDeliverableStatusFilter);
+    }
+    if (effPriority !== "all") {
+      params.set("priority", effPriority);
+    }
+    if (effOverdue !== "all") {
+      params.set("overdue", effOverdue);
+    }
+    if (effStale !== "all") {
+      params.set("stale", effStale);
+    }
+    if (effBlocked !== "all") {
+      params.set("blocked", effBlocked);
+    }
+    if (effDeadlineFrom.trim() !== "") {
+      params.set("deadlineFrom", effDeadlineFrom.trim());
+    }
+    if (effDeadlineTo.trim() !== "") {
+      params.set("deadlineTo", effDeadlineTo.trim());
+    }
+    if (effSortBy !== "createdAt" || effSortOrder !== "asc") {
+      params.set("sortBy", effSortBy);
+      params.set("sortOrder", effSortOrder);
     }
     const queryString = params.toString();
 
@@ -2394,6 +2463,33 @@ export function TasksClient({
     setActionErrorTaskId(null);
     setActionSuccess(null);
     await refreshTasks(statusFilter, assigneeFilter, nextDeliverableStatus);
+  }
+
+  async function resetAllTaskFilters() {
+    setStatusFilter("all");
+    setAssigneeFilter("all");
+    setDeliverableStatusFilter("all");
+    setPriorityFilter("all");
+    setOverdueFilter("all");
+    setStaleFilter("all");
+    setBlockedFilter("all");
+    setDeadlineFromFilter("");
+    setDeadlineToFilter("");
+    setSortByFilter("createdAt");
+    setSortOrderFilter("asc");
+    setActionError(null);
+    setActionErrorTaskId(null);
+    setActionSuccess(null);
+    await refreshTasks("all", "all", "all", {
+      priority: "all",
+      overdue: "all",
+      stale: "all",
+      blocked: "all",
+      deadlineFrom: "",
+      deadlineTo: "",
+      sortBy: "createdAt",
+      sortOrder: "asc",
+    });
   }
 
   async function onCreateTopLevelTask(event: SubmitEvent<HTMLFormElement>) {
@@ -2901,6 +2997,38 @@ export function TasksClient({
                 Blocked
               </span>
             )}
+            {task.isOverdue && (
+              <span
+                data-testid={`task-overdue-badge-${task.id}`}
+                className="rounded border border-red-300 bg-red-100 px-2 py-0.5 font-semibold text-red-800 dark:border-red-800 dark:bg-red-950/70 dark:text-red-300"
+              >
+                Overdue
+              </span>
+            )}
+            {!task.isOverdue && task.isDueToday && (
+              <span
+                data-testid={`task-due-today-badge-${task.id}`}
+                className="rounded border border-amber-300 bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/70 dark:text-amber-300"
+              >
+                Due Today
+              </span>
+            )}
+            {!task.isOverdue && !task.isDueToday && task.isDueSoon && (
+              <span
+                data-testid={`task-due-soon-badge-${task.id}`}
+                className="rounded border border-yellow-300 bg-yellow-50 px-2 py-0.5 font-medium text-yellow-800 dark:border-yellow-800/70 dark:bg-yellow-950/50 dark:text-yellow-300"
+              >
+                Due Soon
+              </span>
+            )}
+            {task.isStale && (
+              <span
+                data-testid={`task-stale-badge-${task.id}`}
+                className="rounded border border-amber-300 bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/70 dark:text-amber-300"
+              >
+                Stale · {task.daysSinceActivity ?? 7}d inactive
+              </span>
+            )}
             {task.deliverableStatus && (
               <span
                 className={DELIVERABLE_STATUS_CLASSES[task.deliverableStatus]}
@@ -2947,6 +3075,17 @@ export function TasksClient({
                 {formatDateDisplay(task.deadline)}
               </strong>
             </span>
+            {task.lastActivityAt && (
+              <span data-testid={`task-last-activity-${task.id}`}>
+                Last activity:{" "}
+                <strong className="font-normal text-zinc-700 dark:text-zinc-300">
+                  {formatTimestampDisplay(task.lastActivityAt)}
+                </strong>
+                {typeof task.daysSinceActivity === "number"
+                  ? ` (${task.daysSinceActivity}d ago)`
+                  : ""}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -3038,6 +3177,60 @@ export function TasksClient({
       )}
 
       <section className="flex flex-col gap-3">
+        {/* Project-level Task Health & Overdue/Stale Summary Bar */}
+        <div
+          data-testid="project-task-health-summary"
+          className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-300"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              Total Tasks:{" "}
+              <strong className="font-semibold text-zinc-900 dark:text-zinc-100">
+                {tasks.length}
+              </strong>
+            </span>
+            <span>·</span>
+            <span className="text-emerald-700 dark:text-emerald-400">
+              Completed: {tasks.filter((t) => t.status === "done").length}
+            </span>
+            <span>·</span>
+            <span className="text-blue-700 dark:text-blue-400">
+              In Progress:{" "}
+              {tasks.filter((t) => t.status === "in_progress").length}
+            </span>
+            <span>·</span>
+            <span
+              data-testid="project-overdue-summary-count"
+              className="font-medium text-red-700 dark:text-red-400"
+            >
+              Overdue: {tasks.filter((t) => t.isOverdue).length}
+            </span>
+            <span>·</span>
+            <span
+              data-testid="project-stale-summary-count"
+              className="font-medium text-amber-700 dark:text-amber-400"
+            >
+              Stale: {tasks.filter((t) => t.isStale).length}
+            </span>
+            <span>·</span>
+            <span className="font-medium text-rose-700 dark:text-rose-400">
+              Blocked:{" "}
+              {tasks.filter((t) => t.status !== "done" && t.isBlocked).length}
+            </span>
+          </div>
+          {tasks.length > 0 && (
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              Completion:{" "}
+              {Math.round(
+                (tasks.filter((t) => t.status === "done").length /
+                  tasks.length) *
+                  100,
+              )}
+              %
+            </span>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-medium">Tasks</h2>
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -3055,6 +3248,31 @@ export function TasksClient({
                 <option value="todo">To do</option>
                 <option value="in_progress">In progress</option>
                 <option value="done">Done</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-zinc-500">Priority:</span>
+              <select
+                disabled={listLoading}
+                aria-label="Filter tasks by priority"
+                value={priorityFilter}
+                onChange={(event) => {
+                  const next = event.target.value as "all" | TaskPriority;
+                  setPriorityFilter(next);
+                  void refreshTasks(
+                    statusFilter,
+                    assigneeFilter,
+                    deliverableStatusFilter,
+                    { priority: next },
+                  );
+                }}
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="all">All priorities</option>
+                <option value="urgent">Urgent</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
               </select>
             </label>
             <label className="flex items-center gap-1.5">
@@ -3119,14 +3337,142 @@ export function TasksClient({
                 <option value="approved">Approved</option>
               </select>
             </label>
-            {deliverableStatusFilter !== "all" && (
+            <label className="flex items-center gap-1.5">
+              <span className="text-zinc-500">Overdue:</span>
+              <select
+                disabled={listLoading}
+                aria-label="Filter tasks by overdue status"
+                value={overdueFilter}
+                onChange={(event) => {
+                  const next = event.target.value as "all" | "true" | "false";
+                  setOverdueFilter(next);
+                  void refreshTasks(
+                    statusFilter,
+                    assigneeFilter,
+                    deliverableStatusFilter,
+                    { overdue: next },
+                  );
+                }}
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="all">All</option>
+                <option value="true">Overdue only</option>
+                <option value="false">Not overdue</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-zinc-500">Stale:</span>
+              <select
+                disabled={listLoading}
+                aria-label="Filter tasks by stale status"
+                value={staleFilter}
+                onChange={(event) => {
+                  const next = event.target.value as "all" | "true" | "false";
+                  setStaleFilter(next);
+                  void refreshTasks(
+                    statusFilter,
+                    assigneeFilter,
+                    deliverableStatusFilter,
+                    { stale: next },
+                  );
+                }}
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="all">All</option>
+                <option value="true">Stale only</option>
+                <option value="false">Active recently</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-zinc-500">Blocked:</span>
+              <select
+                disabled={listLoading}
+                aria-label="Filter tasks by blocked status"
+                value={blockedFilter}
+                onChange={(event) => {
+                  const next = event.target.value as "all" | "true" | "false";
+                  setBlockedFilter(next);
+                  void refreshTasks(
+                    statusFilter,
+                    assigneeFilter,
+                    deliverableStatusFilter,
+                    { blocked: next },
+                  );
+                }}
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="all">All</option>
+                <option value="true">Blocked only</option>
+                <option value="false">Unblocked only</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-zinc-500">Sort:</span>
+              <select
+                disabled={listLoading}
+                aria-label="Sort tasks by"
+                value={sortByFilter}
+                onChange={(event) => {
+                  const next = event.target.value as
+                    | "createdAt"
+                    | "deadline"
+                    | "priority"
+                    | "lastActivity"
+                    | "status";
+                  setSortByFilter(next);
+                  void refreshTasks(
+                    statusFilter,
+                    assigneeFilter,
+                    deliverableStatusFilter,
+                    { sortBy: next },
+                  );
+                }}
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="createdAt">Created</option>
+                <option value="deadline">Deadline</option>
+                <option value="priority">Priority</option>
+                <option value="lastActivity">Last activity</option>
+                <option value="status">Status</option>
+              </select>
+              <select
+                disabled={listLoading}
+                aria-label="Sort order"
+                value={sortOrderFilter}
+                onChange={(event) => {
+                  const next = event.target.value as "asc" | "desc";
+                  setSortOrderFilter(next);
+                  void refreshTasks(
+                    statusFilter,
+                    assigneeFilter,
+                    deliverableStatusFilter,
+                    { sortOrder: next },
+                  );
+                }}
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </label>
+            {(statusFilter !== "all" ||
+              assigneeFilter !== "all" ||
+              deliverableStatusFilter !== "all" ||
+              priorityFilter !== "all" ||
+              overdueFilter !== "all" ||
+              staleFilter !== "all" ||
+              blockedFilter !== "all" ||
+              deadlineFromFilter !== "" ||
+              deadlineToFilter !== "" ||
+              sortByFilter !== "createdAt" ||
+              sortOrderFilter !== "asc") && (
               <button
                 type="button"
                 disabled={listLoading}
-                onClick={() => void onDeliverableStatusFilterChange("all")}
+                onClick={() => void resetAllTaskFilters()}
                 className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
               >
-                Reset filter
+                Reset filters
               </button>
             )}
           </div>

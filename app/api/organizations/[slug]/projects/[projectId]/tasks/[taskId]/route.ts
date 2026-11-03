@@ -1,18 +1,24 @@
 import { connection } from "next/server";
-import type { TaskDoc, TaskPriority, TaskStatus } from "@/lib/schema";
+import type {
+  MembershipRole,
+  ProjectStatus,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/schema";
 import {
+  enrichSingleTask,
   getOrganizationBySlug,
   getProjectById,
   getTaskById,
-  getTaskDeliverableStatus,
-  getTaskDependencySummary,
   MOVE_TASK_WITH_DEPENDENCIES_MESSAGE,
   parseObjectId,
   requireSessionUserId,
+  serializeTaskAssignee,
   TenantAccessError,
   TenantValidationError,
   updateTask,
-  type TaskBlockerSummary,
+  type EnrichedTaskItem,
+  type TaskDeadlineState,
   type TaskDeliverableStatus,
   type TaskDependencyItem,
   type UpdateTaskInput,
@@ -32,15 +38,26 @@ type TaskDependencyDto = {
   createdAt: string;
 };
 
+type TaskAssigneeDto = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: MembershipRole | null;
+};
+
 type TaskDto = {
   id: string;
   projectId: string;
+  projectName: string;
+  projectStatus: ProjectStatus;
   parentTaskId: string | null;
+  parentTaskTitle: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId: string | null;
+  assignee: TaskAssigneeDto | null;
   deadline: string | null;
   approvalRequired: boolean;
   isBlocked: boolean;
@@ -48,6 +65,13 @@ type TaskDto = {
   dependencyCount: number;
   dependencies: TaskDependencyDto[];
   deliverableStatus: TaskDeliverableStatus | null;
+  isOverdue: boolean;
+  isDueToday: boolean;
+  isDueSoon: boolean;
+  deadlineState: TaskDeadlineState;
+  isStale: boolean;
+  lastActivityAt: string;
+  daysSinceActivity: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -92,32 +116,36 @@ function toTaskDependencyDto(item: TaskDependencyItem): TaskDependencyDto {
   };
 }
 
-function toTaskDto(
-  task: TaskDoc,
-  blockerSummary?: TaskBlockerSummary,
-  deliverableStatus?: TaskDeliverableStatus | null,
-): TaskDto {
-  const dependencies = blockerSummary
-    ? blockerSummary.dependencies.map(toTaskDependencyDto)
-    : [];
+function toTaskDto(item: EnrichedTaskItem): TaskDto {
   return {
-    id: task._id.toHexString(),
-    projectId: task.projectId.toHexString(),
-    parentTaskId: task.parentTaskId ? task.parentTaskId.toHexString() : null,
-    title: task.title,
-    description: task.description ?? null,
-    status: task.status,
-    priority: task.priority,
-    assigneeId: task.assigneeId,
-    deadline: task.deadline ? task.deadline.toISOString() : null,
-    approvalRequired: task.approvalRequired === true,
-    isBlocked: blockerSummary?.isBlocked ?? false,
-    blockerCount: blockerSummary?.blockerCount ?? 0,
-    dependencyCount: blockerSummary?.dependencyCount ?? 0,
-    dependencies,
-    deliverableStatus: deliverableStatus ?? null,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
+    id: item.id,
+    projectId: item.projectId,
+    projectName: item.projectName,
+    projectStatus: item.projectStatus,
+    parentTaskId: item.parentTaskId,
+    parentTaskTitle: item.parentTaskTitle,
+    title: item.title,
+    description: item.description,
+    status: item.status,
+    priority: item.priority,
+    assigneeId: item.assigneeId,
+    assignee: serializeTaskAssignee(item.assignee),
+    deadline: item.deadline ? item.deadline.toISOString() : null,
+    approvalRequired: item.approvalRequired,
+    isBlocked: item.isBlocked,
+    blockerCount: item.blockerCount,
+    dependencyCount: item.dependencyCount,
+    dependencies: item.dependencies.map(toTaskDependencyDto),
+    deliverableStatus: item.deliverableStatus,
+    isOverdue: item.isOverdue,
+    isDueToday: item.isDueToday,
+    isDueSoon: item.isDueSoon,
+    deadlineState: item.deadlineState,
+    isStale: item.isStale,
+    lastActivityAt: item.lastActivityAt.toISOString(),
+    daysSinceActivity: item.daysSinceActivity,
+    createdAt: item.createdAt.toISOString(),
+    updatedAt: item.updatedAt.toISOString(),
   };
 }
 
@@ -312,23 +340,15 @@ export async function PATCH(
       );
     }
 
-    const blockerSummary = await getTaskDependencySummary(
+    const enriched = await enrichSingleTask(
       organization._id,
-      updatedTask.projectId,
-      updatedTask._id,
-      request.headers,
-    );
-
-    const deliverableStatus = await getTaskDeliverableStatus(
-      organization._id,
-      updatedTask.projectId,
-      updatedTask._id,
-      updatedTask.approvalRequired === true,
+      project,
+      updatedTask,
       request.headers,
     );
 
     return Response.json(
-      { task: toTaskDto(updatedTask, blockerSummary, deliverableStatus) },
+      { task: toTaskDto(enriched) },
       { status: 200 },
     );
   } catch (error) {

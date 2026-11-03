@@ -114,6 +114,15 @@ async function OrganizationWorkspace({
           <p className="text-xs text-zinc-500">/{organization.slug}</p>
         </div>
         <div className="flex items-center gap-2">
+          {organization.role === "admin" || organization.role === "manager" ? (
+            <Link
+              href={`/dashboard/${encodeURIComponent(organization.slug)}/supervision`}
+              data-testid="org-supervision-link"
+              className="rounded border border-zinc-900 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-800 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Supervision &amp; Reports
+            </Link>
+          ) : null}
           <Link
             href={`/dashboard/${encodeURIComponent(organization.slug)}/members`}
             className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
