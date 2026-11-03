@@ -1,15 +1,26 @@
 import { connection } from "next/server";
-import type { DeliverableDoc } from "@/lib/schema";
+import type { DeliverableDoc, ReviewDecision, ReviewDoc } from "@/lib/schema";
 import {
   createDeliverable,
   getOrganizationBySlug,
-  listTaskDeliverables,
+  listTaskDeliverablesWithReviews,
   parseObjectId,
   requireSessionUserId,
   TenantAccessError,
   TenantValidationError,
   type UserOrganization,
 } from "@/lib/tenancy";
+
+type ReviewDto = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  deliverableId: string;
+  reviewerId: string;
+  decision: ReviewDecision;
+  comment: string | null;
+  createdAt: string;
+};
 
 type DeliverableDto = {
   id: string;
@@ -19,6 +30,7 @@ type DeliverableDto = {
   description: string | null;
   url: string | null;
   createdAt: string;
+  reviews: ReviewDto[];
 };
 
 const ALLOWED_CREATE_FIELDS: ReadonlySet<string> = new Set([
@@ -47,7 +59,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function toDeliverableDto(deliverable: DeliverableDoc): DeliverableDto {
+function toReviewDto(review: ReviewDoc): ReviewDto {
+  return {
+    id: review._id.toHexString(),
+    projectId: review.projectId.toHexString(),
+    taskId: review.taskId.toHexString(),
+    deliverableId: review.deliverableId.toHexString(),
+    reviewerId: review.reviewerId,
+    decision: review.decision,
+    comment: review.comment ?? null,
+    createdAt: review.createdAt.toISOString(),
+  };
+}
+
+function toDeliverableDto(
+  deliverable: DeliverableDoc,
+  reviews: ReviewDoc[] = [],
+): DeliverableDto {
   return {
     id: deliverable._id.toHexString(),
     projectId: deliverable.projectId.toHexString(),
@@ -56,6 +84,7 @@ function toDeliverableDto(deliverable: DeliverableDoc): DeliverableDto {
     description: deliverable.description ?? null,
     url: deliverable.url ?? null,
     createdAt: deliverable.createdAt.toISOString(),
+    reviews: reviews.map(toReviewDto),
   };
 }
 
@@ -101,7 +130,7 @@ export async function GET(
       );
     }
 
-    const deliverables = await listTaskDeliverables(
+    const deliverables = await listTaskDeliverablesWithReviews(
       organization._id,
       parsedProjectId,
       parsedTaskId,
@@ -109,7 +138,11 @@ export async function GET(
     );
 
     return Response.json(
-      { deliverables: deliverables.map(toDeliverableDto) },
+      {
+        deliverables: deliverables.map((d) =>
+          toDeliverableDto(d, d.reviews),
+        ),
+      },
       { status: 200 },
     );
   } catch (error) {
@@ -226,7 +259,7 @@ export async function POST(
     );
 
     return Response.json(
-      { deliverable: toDeliverableDto(deliverable) },
+      { deliverable: toDeliverableDto(deliverable, []) },
       { status: 201 },
     );
   } catch (error) {

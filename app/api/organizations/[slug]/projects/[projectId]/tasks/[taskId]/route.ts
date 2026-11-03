@@ -4,14 +4,33 @@ import {
   getOrganizationBySlug,
   getProjectById,
   getTaskById,
+  getTaskDeliverableStatus,
+  getTaskDependencySummary,
+  MOVE_TASK_WITH_DEPENDENCIES_MESSAGE,
   parseObjectId,
   requireSessionUserId,
   TenantAccessError,
   TenantValidationError,
   updateTask,
+  type TaskBlockerSummary,
+  type TaskDeliverableStatus,
+  type TaskDependencyItem,
   type UpdateTaskInput,
   type UserOrganization,
 } from "@/lib/tenancy";
+
+type TaskDependencyDto = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  prerequisiteTaskId: string;
+  prerequisiteTitle: string;
+  prerequisiteStatus: TaskStatus;
+  prerequisiteParentTaskId: string | null;
+  isBlocking: boolean;
+  createdBy: string;
+  createdAt: string;
+};
 
 type TaskDto = {
   id: string;
@@ -24,6 +43,11 @@ type TaskDto = {
   assigneeId: string | null;
   deadline: string | null;
   approvalRequired: boolean;
+  isBlocked: boolean;
+  blockerCount: number;
+  dependencyCount: number;
+  dependencies: TaskDependencyDto[];
+  deliverableStatus: TaskDeliverableStatus | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -46,13 +70,36 @@ const LIFECYCLE_CONFLICT_MESSAGES: ReadonlySet<string> = new Set([
   "Cannot modify tasks in an archived project.",
   "Cannot move a task into an archived project.",
   "Cannot move a task with subtasks to a different project.",
+  MOVE_TASK_WITH_DEPENDENCIES_MESSAGE,
   "Cannot convert a task that already has subtasks into a subtask.",
   "Subtasks must have a top-level parent task.",
   "Cannot mark task as done: deliverable approval is required and no deliverable has been submitted.",
   "Cannot mark task as done: the latest deliverable submission has not been approved.",
 ]);
 
-function toTaskDto(task: TaskDoc): TaskDto {
+function toTaskDependencyDto(item: TaskDependencyItem): TaskDependencyDto {
+  return {
+    id: item.id,
+    projectId: item.projectId,
+    taskId: item.taskId,
+    prerequisiteTaskId: item.prerequisiteTaskId,
+    prerequisiteTitle: item.prerequisiteTitle,
+    prerequisiteStatus: item.prerequisiteStatus,
+    prerequisiteParentTaskId: item.prerequisiteParentTaskId,
+    isBlocking: item.isBlocking,
+    createdBy: item.createdBy,
+    createdAt: item.createdAt.toISOString(),
+  };
+}
+
+function toTaskDto(
+  task: TaskDoc,
+  blockerSummary?: TaskBlockerSummary,
+  deliverableStatus?: TaskDeliverableStatus | null,
+): TaskDto {
+  const dependencies = blockerSummary
+    ? blockerSummary.dependencies.map(toTaskDependencyDto)
+    : [];
   return {
     id: task._id.toHexString(),
     projectId: task.projectId.toHexString(),
@@ -64,6 +111,11 @@ function toTaskDto(task: TaskDoc): TaskDto {
     assigneeId: task.assigneeId,
     deadline: task.deadline ? task.deadline.toISOString() : null,
     approvalRequired: task.approvalRequired === true,
+    isBlocked: blockerSummary?.isBlocked ?? false,
+    blockerCount: blockerSummary?.blockerCount ?? 0,
+    dependencyCount: blockerSummary?.dependencyCount ?? 0,
+    dependencies,
+    deliverableStatus: deliverableStatus ?? null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
   };
@@ -260,8 +312,23 @@ export async function PATCH(
       );
     }
 
+    const blockerSummary = await getTaskDependencySummary(
+      organization._id,
+      updatedTask.projectId,
+      updatedTask._id,
+      request.headers,
+    );
+
+    const deliverableStatus = await getTaskDeliverableStatus(
+      organization._id,
+      updatedTask.projectId,
+      updatedTask._id,
+      updatedTask.approvalRequired === true,
+      request.headers,
+    );
+
     return Response.json(
-      { task: toTaskDto(updatedTask) },
+      { task: toTaskDto(updatedTask, blockerSummary, deliverableStatus) },
       { status: 200 },
     );
   } catch (error) {

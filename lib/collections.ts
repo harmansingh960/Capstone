@@ -2,19 +2,22 @@ import "server-only";
 import { getDb } from "@/lib/db";
 import {
   COLLECTIONS,
+  type ActivityDoc,
   type DeliverableDoc,
   type MembershipDoc,
   type OrganizationDoc,
   type ProjectDoc,
   type ReviewDoc,
+  type TaskDependencyDoc,
   type TaskDoc,
 } from "@/lib/schema";
 
 /**
  * Low-level typed handles to the app-owned collections (never Better Auth's).
  * Prefer the tenant-scoped data-access functions in `@/lib/tenancy` for
- * project, task, deliverable, and review operations so session auth,
- * `organizationId` scoping, and cross-document invariants are always enforced.
+ * project, task, dependency, deliverable, review, and activity operations so
+ * session auth, `organizationId` scoping, and cross-document invariants are
+ * always enforced.
  */
 export async function getCollections() {
   const db = await getDb();
@@ -23,7 +26,11 @@ export async function getCollections() {
     memberships: db.collection<MembershipDoc>(COLLECTIONS.memberships),
     projects: db.collection<ProjectDoc>(COLLECTIONS.projects),
     tasks: db.collection<TaskDoc>(COLLECTIONS.tasks),
+    taskDependencies: db.collection<TaskDependencyDoc>(
+      COLLECTIONS.taskDependencies,
+    ),
     deliverables: db.collection<DeliverableDoc>(COLLECTIONS.deliverables),
     reviews: db.collection<ReviewDoc>(COLLECTIONS.reviews),
+    activities: db.collection<ActivityDoc>(COLLECTIONS.activities),
   };
 }

@@ -1,14 +1,160 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type SubmitEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type SubmitEvent } from "react";
 import type {
+  ActivityEventType,
+  ActivityTargetType,
   MembershipRole,
   ProjectStatus,
   ReviewDecision,
+  TaskDeliverableStatus,
   TaskPriority,
   TaskStatus,
 } from "@/lib/schema";
+
+export type ActivityActorSummary = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: MembershipRole | null;
+  label: string;
+};
+
+export type ActivityFieldChangeSummary = {
+  field: string;
+  before: string | number | boolean | null;
+  after: string | number | boolean | null;
+  beforeDisplay: string;
+  afterDisplay: string;
+};
+
+export type ActivityEntrySummary = {
+  id: string;
+  organizationId: string;
+  projectId: string | null;
+  taskId: string | null;
+  targetType: ActivityTargetType;
+  targetId: string;
+  eventType: ActivityEventType;
+  actorId: string;
+  actor: ActivityActorSummary;
+  summary: string;
+  changes: ActivityFieldChangeSummary[];
+  metadata: Record<string, string | number | boolean | null> | null;
+  createdAt: string;
+};
+
+const ACTIVITY_FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  title: "Title",
+  description: "Description",
+  status: "Status",
+  priority: "Priority",
+  assigneeId: "Assignee",
+  deadline: "Deadline",
+  approvalRequired: "Approval requirement",
+  parentTaskId: "Parent task",
+  prerequisiteTaskId: "Prerequisite",
+  submissionNumber: "Submission",
+  decision: "Review decision",
+};
+
+const ACTIVITY_EVENT_BADGES: Record<
+  ActivityEventType,
+  { label: string; className: string }
+> = {
+  "project.created": {
+    label: "Project Created",
+    className:
+      "rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  "project.updated": {
+    label: "Project Updated",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  "project.archived": {
+    label: "Project Archived",
+    className:
+      "rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  },
+  "project.unarchived": {
+    label: "Project Unarchived",
+    className:
+      "rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  "task.created": {
+    label: "Task Created",
+    className:
+      "rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300",
+  },
+  "subtask.created": {
+    label: "Subtask Created",
+    className:
+      "rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
+  },
+  "task.updated": {
+    label: "Task Updated",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  "task.status_changed": {
+    label: "Status Changed",
+    className:
+      "rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
+  },
+  "task.priority_changed": {
+    label: "Priority Changed",
+    className:
+      "rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-800 dark:border-purple-800 dark:bg-purple-950/60 dark:text-purple-300",
+  },
+  "task.assignee_changed": {
+    label: "Assignee Changed",
+    className:
+      "rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300",
+  },
+  "task.deadline_changed": {
+    label: "Deadline Changed",
+    className:
+      "rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  },
+  "task.approval_required_changed": {
+    label: "Approval Rule Changed",
+    className:
+      "rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
+  },
+  "dependency.added": {
+    label: "Prerequisite Added",
+    className:
+      "rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  },
+  "dependency.removed": {
+    label: "Prerequisite Removed",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  "deliverable.submitted": {
+    label: "Deliverable Submitted",
+    className:
+      "rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300",
+  },
+  "review.approved": {
+    label: "Review Approved",
+    className:
+      "rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  "review.changes_requested": {
+    label: "Changes Requested",
+    className:
+      "rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-300",
+  },
+  "review.decision_updated": {
+    label: "Review Decision Updated",
+    className:
+      "rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
+  },
+};
 
 export type DeliverableSummary = {
   id: string;
@@ -18,6 +164,7 @@ export type DeliverableSummary = {
   description: string | null;
   url: string | null;
   createdAt: string;
+  reviews?: ReviewSummary[];
 };
 
 export type ReviewSummary = {
@@ -28,6 +175,20 @@ export type ReviewSummary = {
   reviewerId: string;
   decision: ReviewDecision;
   comment: string | null;
+  createdAt: string;
+};
+
+// Matches TaskDependencyDto returned by the dependencies API routes.
+export type TaskDependencyItem = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  prerequisiteTaskId: string;
+  prerequisiteTitle: string;
+  prerequisiteStatus: TaskStatus;
+  prerequisiteParentTaskId: string | null;
+  isBlocking: boolean;
+  createdBy: string;
   createdAt: string;
 };
 
@@ -42,8 +203,33 @@ export type TaskSummary = {
   assigneeId: string | null;
   deadline: string | null;
   approvalRequired: boolean;
+  // Dependency fields – populated by GET /tasks and PATCH /tasks/[id]
+  isBlocked: boolean;
+  blockerCount: number;
+  dependencyCount: number;
+  dependencies: TaskDependencyItem[];
+  // Deliverable workflow status – populated by GET /tasks and PATCH /tasks/[id]
+  deliverableStatus: TaskDeliverableStatus | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export const DELIVERABLE_STATUS_LABELS: Record<TaskDeliverableStatus, string> = {
+  needs_submission: "Needs Submission",
+  in_review: "In Review",
+  changes_requested: "Changes Requested",
+  approved: "Approved",
+};
+
+export const DELIVERABLE_STATUS_CLASSES: Record<TaskDeliverableStatus, string> = {
+  needs_submission:
+    "rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+  in_review:
+    "rounded border border-blue-300 bg-blue-50 px-2 py-0.5 font-medium text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+  changes_requested:
+    "rounded border border-rose-300 bg-rose-50 px-2 py-0.5 font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-300",
+  approved:
+    "rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
 };
 
 export type TaskWithSubtasks = TaskSummary & {
@@ -58,6 +244,19 @@ export type MemberOption = {
 };
 
 type StatusFilter = "all" | TaskStatus;
+
+type DeliverableStatusFilterOption = "all" | TaskDeliverableStatus;
+
+const DELIVERABLE_STATUS_FILTER_LABELS: Record<
+  DeliverableStatusFilterOption,
+  string
+> = {
+  all: "All deliverable statuses",
+  needs_submission: "Needs Submission",
+  in_review: "In Review",
+  changes_requested: "Changes Requested",
+  approved: "Approved",
+};
 
 type TasksClientProps = {
   organizationSlug: string;
@@ -177,17 +376,42 @@ async function readApiError(
   return fallbackMessage;
 }
 
+type PreviousReviewFeedback = {
+  submissionNumber: number;
+  reviewerId: string;
+  createdAt: string;
+  comment: string;
+};
+
 type DeliverableItemProps = {
   organizationSlug: string;
   projectId: string;
   taskId: string;
   taskStatus: TaskStatus;
   deliverable: DeliverableSummary;
+  submissionNumber: number;
+  isRevision: boolean;
+  previousFeedback?: PreviousReviewFeedback | null;
+  isCurrent: boolean;
   isProjectArchived: boolean;
   canManage: boolean;
   currentUserId: string;
   members: MemberOption[];
+  onReviewAdded?: (newReview: ReviewSummary) => void;
+  onDeliverableStatusChange?: (status: TaskDeliverableStatus) => void;
 };
+
+function sortReviewsNewestFirst(
+  reviews: ReviewSummary[] | undefined,
+): ReviewSummary[] {
+  if (!reviews || reviews.length === 0) return [];
+  return [...reviews].sort((a, b) => {
+    const timeDiff =
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return b.id.localeCompare(a.id);
+  });
+}
 
 function DeliverableItem({
   organizationSlug,
@@ -195,15 +419,18 @@ function DeliverableItem({
   taskId,
   taskStatus,
   deliverable,
+  submissionNumber,
+  isRevision,
+  previousFeedback,
+  isCurrent,
   isProjectArchived,
   canManage,
   currentUserId,
   members,
+  onReviewAdded,
+  onDeliverableStatusChange,
 }: DeliverableItemProps) {
-  const [reviews, setReviews] = useState<ReviewSummary[]>([]);
-  const [reviewsLoading, setReviewsLoading] = useState(true);
-  const [reviewsError, setReviewsError] = useState<string | null>(null);
-
+  const reviews = sortReviewsNewestFirst(deliverable.reviews);
   const [decision, setDecision] = useState<ReviewDecision>("approved");
   const [comment, setComment] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -217,81 +444,19 @@ function DeliverableItem({
 
   const reviewsEndpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/deliverables/${encodeURIComponent(deliverable.id)}/reviews`;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchInitialReviews() {
-      try {
-        const response = await fetch(reviewsEndpoint, {
-          method: "GET",
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          const message = await readApiError(
-            response,
-            "Unable to load reviews.",
-          );
-          if (!cancelled) {
-            setReviewsError(message);
-          }
-          return;
-        }
-
-        const data = (await response.json()) as { reviews?: ReviewSummary[] };
-        if (!cancelled) {
-          setReviews(Array.isArray(data.reviews) ? data.reviews : []);
-          setReviewsError(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setReviewsError(
-            "Network error while loading reviews. Please try again.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setReviewsLoading(false);
-        }
-      }
-    }
-
-    void fetchInitialReviews();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [reviewsEndpoint]);
-
-  async function refreshReviews() {
-    setReviewsLoading(true);
-    setReviewsError(null);
-    try {
-      const response = await fetch(reviewsEndpoint, {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        const message = await readApiError(response, "Unable to load reviews.");
-        setReviewsError(message);
-        return;
-      }
-
-      const data = (await response.json()) as { reviews?: ReviewSummary[] };
-      setReviews(Array.isArray(data.reviews) ? data.reviews : []);
-    } catch {
-      setReviewsError("Network error while loading reviews. Please try again.");
-    } finally {
-      setReviewsLoading(false);
-    }
-  }
-
   async function onSubmitReview(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canManage || isProjectArchived || reviewInFlightRef.current) return;
 
     const trimmedComment = comment.trim();
+    if (decision === "changes_requested" && trimmedComment === "") {
+      setReviewSubmitError(
+        "A review comment is required when requesting changes.",
+      );
+      setReviewSubmitSuccess(null);
+      return;
+    }
+
     if (trimmedComment.length > 5000) {
       setReviewSubmitError("Review comment cannot exceed 5000 characters.");
       setReviewSubmitSuccess(null);
@@ -322,10 +487,17 @@ function DeliverableItem({
         return;
       }
 
+      const data = (await response.json()) as { review?: ReviewSummary };
+
       setComment("");
       setDecision("approved");
       setReviewSubmitSuccess("Review recorded.");
-      await refreshReviews();
+      if (data.review && onReviewAdded) {
+        onReviewAdded(data.review);
+      }
+      if (isCurrent && onDeliverableStatusChange) {
+        onDeliverableStatusChange(decision);
+      }
     } catch {
       setReviewSubmitError(
         "Network error while submitting review. Please try again.",
@@ -338,23 +510,47 @@ function DeliverableItem({
 
   const safeUrl = getSafeExternalHttpUrl(deliverable.url);
   const isTaskDone = taskStatus === "done";
-  const canReview = canManage && !isProjectArchived && !isTaskDone;
+  const canReview = isCurrent && canManage && !isProjectArchived && !isTaskDone;
   const latestReview = reviews[0] ?? null;
   const inputClassName =
     "rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900";
 
   return (
-    <li className="flex flex-col gap-2.5 rounded border border-zinc-200 bg-white p-3 text-xs dark:border-zinc-800 dark:bg-zinc-950">
+    <li
+      className={`flex flex-col gap-2.5 rounded border p-3 text-xs ${
+        isCurrent
+          ? "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+          : "border-zinc-200/80 bg-zinc-50/60 dark:border-zinc-800/80 dark:bg-zinc-900/40"
+      }`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 text-zinc-500">
-        <span>
-          Submitted by{" "}
-          <strong className="font-normal text-zinc-700 dark:text-zinc-300">
-            {formatMemberLabel(deliverable.submittedBy, currentUserId, members)}
-          </strong>
-        </span>
         <div className="flex flex-wrap items-center gap-2">
-          {!reviewsLoading &&
-            (latestReview ? (
+          <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+            {isRevision
+              ? `Submission #${submissionNumber} — Revision`
+              : `Submission #${submissionNumber}`}
+          </span>
+          <span>•</span>
+          <span>
+            Submitted by{" "}
+            <strong className="font-normal text-zinc-700 dark:text-zinc-300">
+              {formatMemberLabel(deliverable.submittedBy, currentUserId, members)}
+            </strong>
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {isCurrent ? (
+            <span className="rounded border border-blue-300 bg-blue-100 px-2 py-0.5 font-semibold text-blue-900 dark:border-blue-800 dark:bg-blue-950/80 dark:text-blue-200">
+              Current Submission
+            </span>
+          ) : (
+            <span className="rounded border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+              Superseded
+            </span>
+          )}
+
+          {latestReview ? (
+            isCurrent ? (
               <span
                 className={
                   latestReview.decision === "approved"
@@ -365,10 +561,21 @@ function DeliverableItem({
                 Latest review: {REVIEW_DECISION_LABELS[latestReview.decision]}
               </span>
             ) : (
-              <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                Awaiting review
+              <span className="rounded border border-zinc-200 bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                {latestReview.decision === "approved"
+                  ? "Prior review: Approved (Superseded)"
+                  : "Prior review: Changes requested (Superseded)"}
               </span>
-            ))}
+            )
+          ) : isCurrent ? (
+            <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+              Awaiting review
+            </span>
+          ) : (
+            <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
+              Awaiting review (Superseded)
+            </span>
+          )}
           <span>{formatTimestampDisplay(deliverable.createdAt)}</span>
         </div>
       </div>
@@ -399,36 +606,87 @@ function DeliverableItem({
         </div>
       )}
 
+      {isCurrent && previousFeedback && (
+        <details
+          open
+          className="group rounded-md border border-sky-300 bg-sky-50/60 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+        >
+          <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-1 font-semibold select-none">
+            <span className="flex items-center gap-1.5">
+              <span>Addressing Previous Review Feedback</span>
+              <span className="rounded bg-sky-200/70 px-1.5 py-0.5 text-[10px] font-medium text-sky-900 dark:bg-sky-900/80 dark:text-sky-200">
+                From Submission #{previousFeedback.submissionNumber}
+              </span>
+            </span>
+            <span className="text-xs font-normal text-sky-700 dark:text-sky-300">
+              {formatTimestampDisplay(previousFeedback.createdAt)}
+            </span>
+          </summary>
+          <div className="mt-2.5 flex flex-col gap-1.5 border-t border-sky-200/80 pt-2 text-xs dark:border-sky-800/80">
+            <p className="text-sky-900 dark:text-sky-300">
+              Reviewed by{" "}
+              <strong className="font-medium text-sky-950 dark:text-sky-100">
+                {formatMemberLabel(
+                  previousFeedback.reviewerId,
+                  currentUserId,
+                  members,
+                )}
+              </strong>
+            </p>
+            {previousFeedback.comment && (
+              <div className="rounded border border-sky-200 bg-white/80 p-2.5 text-zinc-900 whitespace-pre-wrap dark:border-sky-800 dark:bg-zinc-900/90 dark:text-zinc-100">
+                {previousFeedback.comment}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
+      {isCurrent && latestReview?.decision === "changes_requested" && (
+        <div
+          role="status"
+          className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-200"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-1 font-semibold">
+            <span>Reviewer Feedback — Changes Requested</span>
+            <span className="text-xs font-normal text-amber-800 dark:text-amber-300">
+              {formatTimestampDisplay(latestReview.createdAt)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+            Reviewed by{" "}
+            <strong className="font-medium text-amber-950 dark:text-amber-100">
+              {formatMemberLabel(latestReview.reviewerId, currentUserId, members)}
+            </strong>
+          </p>
+          {latestReview.comment && (
+            <div className="mt-2 rounded border border-amber-200 bg-white/70 p-2.5 text-xs text-zinc-900 whitespace-pre-wrap dark:border-amber-800 dark:bg-zinc-900/80 dark:text-zinc-100">
+              {latestReview.comment}
+            </div>
+          )}
+          <p className="mt-2 text-xs font-medium text-amber-900 dark:text-amber-200">
+            A revised deliverable addressing this feedback is required before this task can be completed.
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800/80">
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium text-zinc-600 dark:text-zinc-400">
             Review history
           </span>
-          {reviewsError && (
-            <button
-              type="button"
-              onClick={() => void refreshReviews()}
-              className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              Retry
-            </button>
-          )}
         </div>
 
-        {reviewsError && (
-          <p role="alert" className="text-red-600">
-            {reviewsError}
-          </p>
-        )}
-
-        {reviewsLoading ? (
-          <p className="text-zinc-500">Loading reviews…</p>
-        ) : reviews.length === 0 ? (
+        {reviews.length === 0 ? (
           <p className="text-zinc-500">No reviews yet.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {reviews.map((review, index) => {
               const isApproved = review.decision === "approved";
+              const isSelfReview =
+                review.reviewerId === deliverable.submittedBy;
+              const isUpdatedDecision =
+                reviews.length > 1 && index < reviews.length - 1;
               return (
                 <li
                   key={review.id}
@@ -448,6 +706,16 @@ function DeliverableItem({
                       {index === 0 && (
                         <span className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                           Latest
+                        </span>
+                      )}
+                      {isUpdatedDecision && (
+                        <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800/80 dark:bg-indigo-950/60 dark:text-indigo-300">
+                          Updated decision
+                        </span>
+                      )}
+                      {isSelfReview && (
+                        <span className="rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                          {isApproved ? "Self-approved" : "Self-review"}
                         </span>
                       )}
                       <span className="text-zinc-500">
@@ -483,6 +751,12 @@ function DeliverableItem({
           </p>
         )}
 
+        {canManage && !isProjectArchived && !isTaskDone && !isCurrent && (
+          <p className="rounded border border-zinc-200 bg-zinc-50 p-2 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
+            This submission has been superseded by a newer deliverable. Reviews can only be added to the current submission.
+          </p>
+        )}
+
         {canReview && (
           <form
             onSubmit={onSubmitReview}
@@ -507,16 +781,30 @@ function DeliverableItem({
                 </select>
               </label>
               <label className="flex flex-col gap-1 sm:col-span-2">
-                <span className="text-zinc-500">Comment (optional)</span>
+                <span className="text-zinc-500">
+                  {decision === "changes_requested"
+                    ? "Comment *"
+                    : "Comment (optional)"}
+                </span>
                 <input
                   type="text"
                   maxLength={5000}
+                  required={decision === "changes_requested"}
                   disabled={reviewSubmitting}
                   value={comment}
                   onChange={(event) => setComment(event.target.value)}
-                  placeholder="Feedback or approval notes…"
+                  placeholder={
+                    decision === "changes_requested"
+                      ? "Explain what needs improvement before resubmission…"
+                      : "Feedback or approval notes…"
+                  }
                   className={inputClassName}
                 />
+                {decision === "changes_requested" && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                    Feedback is required when requesting changes to explain what needs improvement.
+                  </p>
+                )}
               </label>
             </div>
             {reviewSubmitError && (
@@ -554,6 +842,8 @@ type TaskDeliverablesSectionProps = {
   canManage: boolean;
   currentUserId: string;
   members: MemberOption[];
+  onDeliverableStatusChange?: (status: TaskDeliverableStatus) => void;
+  onActivityRecorded?: () => void;
 };
 
 function TaskDeliverablesSection({
@@ -564,6 +854,8 @@ function TaskDeliverablesSection({
   canManage,
   currentUserId,
   members,
+  onDeliverableStatusChange,
+  onActivityRecorded,
 }: TaskDeliverablesSectionProps) {
   const [deliverables, setDeliverables] = useState<DeliverableSummary[]>([]);
   const [deliverablesLoading, setDeliverablesLoading] = useState(true);
@@ -577,6 +869,100 @@ function TaskDeliverablesSection({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
+
+  // Identify current submission matching backend's sort: createdAt DESC, then _id DESC
+  let currentId: string | null = deliverables[0]?.id ?? null;
+  let latestCandidate = deliverables[0];
+  for (let i = 1; i < deliverables.length; i++) {
+    const candidate = deliverables[i];
+    const timeDiff =
+      new Date(candidate.createdAt).getTime() -
+      new Date(latestCandidate.createdAt).getTime();
+    if (timeDiff > 0) {
+      latestCandidate = candidate;
+      currentId = candidate.id;
+    } else if (
+      timeDiff === 0 &&
+      candidate.id.localeCompare(latestCandidate.id) > 0
+    ) {
+      latestCandidate = candidate;
+      currentId = candidate.id;
+    }
+  }
+
+  const currentDeliverable = deliverables.find((d) => d.id === currentId);
+  const currentReview =
+    sortReviewsNewestFirst(currentDeliverable?.reviews)[0] ?? null;
+  const hasCurrentChangesRequested =
+    currentReview?.decision === "changes_requested";
+
+  // Compute chronological order (createdAt ASC, _id ASC) for submission numbering & revision context
+  const chronologicalDeliverables = [...deliverables].sort((a, b) => {
+    const timeDiff =
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return a.id.localeCompare(b.id);
+  });
+
+  const deliverableMetaMap = new Map<
+    string,
+    {
+      submissionNumber: number;
+      isRevision: boolean;
+      previousFeedback: PreviousReviewFeedback | null;
+    }
+  >();
+
+  for (let i = 0; i < chronologicalDeliverables.length; i++) {
+    const d = chronologicalDeliverables[i];
+    const submissionNumber = i + 1;
+    let isRevision = false;
+    let previousFeedback: PreviousReviewFeedback | null = null;
+
+    if (i > 0) {
+      const prev = chronologicalDeliverables[i - 1];
+      const prevLatestReview = sortReviewsNewestFirst(prev.reviews)[0] ?? null;
+      if (prevLatestReview?.decision === "changes_requested") {
+        isRevision = true;
+        if (prevLatestReview.comment) {
+          previousFeedback = {
+            submissionNumber: i,
+            reviewerId: prevLatestReview.reviewerId,
+            createdAt: prevLatestReview.createdAt,
+            comment: prevLatestReview.comment,
+          };
+        }
+      }
+    }
+
+    deliverableMetaMap.set(d.id, {
+      submissionNumber,
+      isRevision,
+      previousFeedback,
+    });
+  }
+
+  const handleReviewAdded = useCallback(
+    (deliverableId: string, newReview: ReviewSummary) => {
+      setDeliverables((prev) =>
+        prev.map((d) =>
+          d.id === deliverableId
+            ? {
+                ...d,
+                reviews: [
+                  newReview,
+                  ...(d.reviews ?? []).filter((r) => r.id !== newReview.id),
+                ],
+              }
+            : d,
+        ),
+      );
+      if (onActivityRecorded) {
+        onActivityRecorded();
+      }
+    },
+    [onActivityRecorded],
+  );
 
   const deliverablesEndpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/deliverables`;
   const isUserAllowedForTask = canManage || task.assigneeId === currentUserId;
@@ -721,10 +1107,18 @@ function TaskDeliverablesSection({
       setDescription("");
       setUrl("");
       setSubmitSuccess(
-        task.approvalRequired
-          ? "Deliverable submitted. Task remains open until the latest deliverable is approved and the task is marked Done."
-          : "Deliverable submitted. Mark the task as Done when work is complete.",
+        hasCurrentChangesRequested
+          ? "Revised deliverable submitted. Task remains open until the latest deliverable is approved and the task is marked Done."
+          : task.approvalRequired
+            ? "Deliverable submitted. Task remains open until the latest deliverable is approved and the task is marked Done."
+            : "Deliverable submitted. Mark the task as Done when work is complete.",
       );
+      if (onDeliverableStatusChange) {
+        onDeliverableStatusChange("in_review");
+      }
+      if (onActivityRecorded) {
+        onActivityRecorded();
+      }
       await refreshDeliverables();
     } catch {
       setSubmitError(
@@ -768,20 +1162,39 @@ function TaskDeliverablesSection({
         <p className="text-zinc-500">No deliverables submitted yet.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {deliverables.map((deliverable) => (
-            <DeliverableItem
-              key={deliverable.id}
-              organizationSlug={organizationSlug}
-              projectId={projectId}
-              taskId={task.id}
-              taskStatus={task.status}
-              deliverable={deliverable}
-              isProjectArchived={isProjectArchived}
-              canManage={canManage}
-              currentUserId={currentUserId}
-              members={members}
-            />
-          ))}
+          {deliverables.map((deliverable) => {
+            const meta = deliverableMetaMap.get(deliverable.id) ?? {
+              submissionNumber: 1,
+              isRevision: false,
+              previousFeedback: null,
+            };
+            return (
+              <DeliverableItem
+                key={deliverable.id}
+                organizationSlug={organizationSlug}
+                projectId={projectId}
+                taskId={task.id}
+                taskStatus={task.status}
+                deliverable={deliverable}
+                submissionNumber={meta.submissionNumber}
+                isRevision={meta.isRevision}
+                previousFeedback={meta.previousFeedback}
+                isCurrent={deliverable.id === currentId}
+                isProjectArchived={isProjectArchived}
+                canManage={canManage}
+                currentUserId={currentUserId}
+                members={members}
+                onReviewAdded={(newReview) =>
+                  handleReviewAdded(deliverable.id, newReview)
+                }
+                onDeliverableStatusChange={
+                  deliverable.id === currentId
+                    ? onDeliverableStatusChange
+                    : undefined
+                }
+              />
+            );
+          })}
         </ul>
       )}
 
@@ -797,9 +1210,18 @@ function TaskDeliverablesSection({
           onSubmit={onSubmitDeliverable}
           className="flex flex-col gap-2 rounded border border-dashed border-zinc-300 p-2.5 dark:border-zinc-700"
         >
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            Submit deliverable
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              {hasCurrentChangesRequested
+                ? "Submit Revised Deliverable"
+                : "Submit deliverable"}
+            </span>
+            {hasCurrentChangesRequested && (
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                Provide an updated deliverable addressing the reviewer&apos;s feedback above.
+              </p>
+            )}
+          </div>
           <label className="flex flex-col gap-1">
             <span className="text-zinc-500">
               Description (optional if URL provided)
@@ -843,11 +1265,755 @@ function TaskDeliverablesSection({
             disabled={submitting}
             className="self-start rounded bg-black px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60 dark:bg-white dark:text-black"
           >
-            {submitting ? "Submitting…" : "Submit deliverable"}
+            {submitting
+              ? "Submitting…"
+              : hasCurrentChangesRequested
+                ? "Submit revised deliverable"
+                : "Submit deliverable"}
           </button>
         </form>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TaskDependenciesSection
+// ---------------------------------------------------------------------------
+
+// Shape returned by GET/POST/DELETE .../dependencies
+type TaskBlockerSummaryResponse = {
+  taskId: string;
+  isBlocked: boolean;
+  blockerCount: number;
+  dependencyCount: number;
+  dependencies: TaskDependencyItem[];
+  blockers: TaskDependencyItem[];
+};
+
+const STATUS_CHIP_CLASSES: Record<TaskStatus, string> = {
+  todo: "rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  in_progress:
+    "rounded bg-blue-100 px-1.5 py-0.5 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300",
+  done: "rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+};
+
+type TaskDependenciesSectionProps = {
+  organizationSlug: string;
+  projectId: string;
+  task: TaskSummary;
+  allTasks: TaskWithSubtasks[];
+  isProjectArchived: boolean;
+  canManage: boolean;
+  onActivityRecorded?: () => void;
+};
+
+function TaskDependenciesSection({
+  organizationSlug,
+  projectId,
+  task,
+  allTasks,
+  isProjectArchived,
+  canManage,
+  onActivityRecorded,
+}: TaskDependenciesSectionProps) {
+  const dependenciesEndpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/dependencies`;
+
+  // Initialise from task summary so the section renders immediately without
+  // a loading flash when data is already available from the parent fetch.
+  const [summary, setSummary] = useState<TaskBlockerSummaryResponse>({
+    taskId: task.id,
+    isBlocked: task.isBlocked,
+    blockerCount: task.blockerCount,
+    dependencyCount: task.dependencyCount,
+    dependencies: task.dependencies,
+    blockers: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [selectedPrereqId, setSelectedPrereqId] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addSuccess, setAddSuccess] = useState<string | null>(null);
+  const [addInFlight, setAddInFlight] = useState(false);
+  const addInFlightRef = useRef(false);
+
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  // Gather all tasks in the project (top-level + subtasks) that are eligible
+  // to be added as prerequisites: not the current task, not already a prereq.
+  const existingPrereqIds = new Set(
+    summary.dependencies.map((d) => d.prerequisiteTaskId),
+  );
+  const eligibleTasks: TaskSummary[] = [];
+  for (const t of allTasks) {
+    if (t.id !== task.id && !existingPrereqIds.has(t.id)) {
+      eligibleTasks.push(t);
+    }
+    for (const sub of t.subtasks) {
+      if (sub.id !== task.id && !existingPrereqIds.has(sub.id)) {
+        eligibleTasks.push(sub);
+      }
+    }
+  }
+
+  async function refreshSummary() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const response = await fetch(dependenciesEndpoint, {
+        method: "GET",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Unable to load dependencies.",
+        );
+        setLoadError(message);
+        return;
+      }
+      const data = (await response.json()) as TaskBlockerSummaryResponse;
+      setSummary(data);
+    } catch {
+      setLoadError(
+        "Network error while loading dependencies. Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onAddDependency(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManage || isProjectArchived || addInFlightRef.current) return;
+    if (!selectedPrereqId) return;
+
+    addInFlightRef.current = true;
+    setAddInFlight(true);
+    setAddError(null);
+    setAddSuccess(null);
+    setRemoveError(null);
+
+    try {
+      const response = await fetch(dependenciesEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prerequisiteTaskId: selectedPrereqId }),
+      });
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Could not add dependency.",
+        );
+        setAddError(message);
+        return;
+      }
+
+      const data = (await response.json()) as TaskBlockerSummaryResponse;
+      setSummary(data);
+      setSelectedPrereqId("");
+      setAddSuccess("Dependency added.");
+      if (onActivityRecorded) {
+        onActivityRecorded();
+      }
+    } catch {
+      setAddError("Network error while adding dependency. Please try again.");
+    } finally {
+      addInFlightRef.current = false;
+      setAddInFlight(false);
+    }
+  }
+
+  async function onRemoveDependency(prerequisiteTaskId: string) {
+    if (!canManage || isProjectArchived || removingId !== null) return;
+
+    setRemovingId(prerequisiteTaskId);
+    setRemoveError(null);
+    setAddError(null);
+    setAddSuccess(null);
+
+    try {
+      const response = await fetch(
+        `${dependenciesEndpoint}/${encodeURIComponent(prerequisiteTaskId)}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Could not remove dependency.",
+        );
+        setRemoveError(message);
+        return;
+      }
+
+      const data = (await response.json()) as TaskBlockerSummaryResponse;
+      setSummary(data);
+      if (onActivityRecorded) {
+        onActivityRecorded();
+      }
+    } catch {
+      setRemoveError(
+        "Network error while removing dependency. Please try again.",
+      );
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  const sectionInputClass =
+    "rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900";
+
+  return (
+    <div className="mt-2 flex flex-col gap-2.5 border-t border-zinc-200 pt-2.5 text-xs dark:border-zinc-800">
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-2">
+        <h5 className="font-medium text-zinc-700 dark:text-zinc-300">
+          Prerequisites ({summary.dependencyCount})
+          {summary.isBlocked && (
+            <span className="ml-2 rounded border border-amber-300 bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/70 dark:text-amber-200">
+              {summary.blockerCount} blocking
+            </span>
+          )}
+        </h5>
+        {loadError && (
+          <button
+            type="button"
+            onClick={() => void refreshSummary()}
+            className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+
+      {/* Load error */}
+      {loadError && (
+        <p role="alert" className="text-red-600">
+          {loadError}
+        </p>
+      )}
+
+      {/* Loading spinner */}
+      {loading && (
+        <p className="text-zinc-500">Loading dependencies…</p>
+      )}
+
+      {/* Dependency list */}
+      {!loading && summary.dependencies.length === 0 && (
+        <p className="text-zinc-500">
+          No prerequisites. This task can start immediately.
+        </p>
+      )}
+
+      {!loading && summary.dependencies.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {summary.dependencies.map((dep) => {
+            const isRemoving = removingId === dep.prerequisiteTaskId;
+            return (
+              <li
+                key={dep.id}
+                className="flex items-center justify-between gap-2 rounded border border-zinc-100 bg-zinc-50 px-2.5 py-1.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  {dep.isBlocking ? (
+                    <span className="rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/70 dark:text-amber-200">
+                      Blocking
+                    </span>
+                  ) : (
+                    <span className="rounded border border-emerald-300 bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                      Resolved
+                    </span>
+                  )}
+                  <span className={STATUS_CHIP_CLASSES[dep.prerequisiteStatus]}>
+                    {STATUS_LABELS[dep.prerequisiteStatus]}
+                  </span>
+                  <span className="text-zinc-700 dark:text-zinc-300">
+                    {dep.prerequisiteTitle}
+                  </span>
+                </div>
+
+                {canManage && !isProjectArchived && (
+                  <button
+                    type="button"
+                    disabled={isRemoving || removingId !== null}
+                    onClick={() =>
+                      void onRemoveDependency(dep.prerequisiteTaskId)
+                    }
+                    className="shrink-0 rounded border border-zinc-300 px-2 py-0.5 text-zinc-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-red-800 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                  >
+                    {isRemoving ? "Removing…" : "Remove"}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Remove error */}
+      {removeError && (
+        <p role="alert" className="text-red-600">
+          {removeError}
+        </p>
+      )}
+
+      {/* Add prerequisite form – admin/manager only */}
+      {canManage && !isProjectArchived && (
+        <form
+          onSubmit={onAddDependency}
+          className="flex flex-col gap-2 rounded border border-dashed border-zinc-300 p-2.5 dark:border-zinc-700"
+        >
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            Add prerequisite
+          </span>
+          {eligibleTasks.length === 0 ? (
+            <p className="text-zinc-500">
+              {summary.dependencyCount === 0
+                ? "No other tasks available in this project."
+                : "All available tasks are already prerequisites."}
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-zinc-500">Task</span>
+                <select
+                  value={selectedPrereqId}
+                  disabled={addInFlight}
+                  onChange={(event) => setSelectedPrereqId(event.target.value)}
+                  className={sectionInputClass}
+                >
+                  <option value="">Select a task…</option>
+                  {eligibleTasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.parentTaskId ? "↳ " : ""}
+                      {t.title}
+                      {" · "}
+                      {STATUS_LABELS[t.status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={addInFlight || !selectedPrereqId}
+                className="rounded bg-black px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-60 dark:bg-white dark:text-black"
+              >
+                {addInFlight ? "Adding…" : "Add"}
+              </button>
+            </div>
+          )}
+
+          {addError && (
+            <p role="alert" className="text-red-600">
+              {addError}
+            </p>
+          )}
+          {addSuccess && (
+            <p role="status" className="text-emerald-600 dark:text-emerald-400">
+              {addSuccess}
+            </p>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Activity Timeline Components (Task Activity & Project Activity)
+// ---------------------------------------------------------------------------
+
+function sortAndDedupeActivitiesNewestFirst(
+  items: ActivityEntrySummary[],
+): ActivityEntrySummary[] {
+  const seen = new Set<string>();
+  const unique: ActivityEntrySummary[] = [];
+  for (const item of items) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      unique.push(item);
+    }
+  }
+  return unique.sort((a, b) => {
+    const timeDiff =
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return b.id.localeCompare(a.id);
+  });
+}
+
+function formatActivityActorLabel(
+  entry: ActivityEntrySummary,
+  currentUserId: string,
+  members: MemberOption[],
+): string {
+  const isCurrentUser = entry.actorId === currentUserId;
+  if (entry.actor && typeof entry.actor.label === "string" && entry.actor.label.trim() !== "") {
+    const roleSuffix = entry.actor.role ? ` · ${entry.actor.role}` : "";
+    const youSuffix = isCurrentUser ? " (you)" : "";
+    return `${entry.actor.label.trim()}${youSuffix}${roleSuffix}`;
+  }
+  return formatMemberLabel(entry.actorId, currentUserId, members);
+}
+
+type ActivityTimelineListProps = {
+  activities: ActivityEntrySummary[];
+  currentUserId: string;
+  members: MemberOption[];
+  compact?: boolean;
+};
+
+function ActivityTimelineList({
+  activities,
+  currentUserId,
+  members,
+  compact = false,
+}: ActivityTimelineListProps) {
+  const ordered = sortAndDedupeActivitiesNewestFirst(activities);
+
+  return (
+    <ol className="flex flex-col gap-2">
+      {ordered.map((entry) => {
+        const badge = ACTIVITY_EVENT_BADGES[entry.eventType] ?? {
+          label: entry.eventType,
+          className:
+            "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+        };
+        const reviewComment =
+          typeof entry.metadata?.comment === "string" &&
+          entry.metadata.comment.trim() !== ""
+            ? entry.metadata.comment.trim()
+            : null;
+
+        return (
+          <li
+            key={entry.id}
+            className={`flex flex-col gap-1.5 rounded border border-zinc-200/80 bg-zinc-50/70 ${
+              compact ? "p-2 text-xs" : "p-3 text-xs"
+            } dark:border-zinc-800 dark:bg-zinc-900/50`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={badge.className}>{badge.label}</span>
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                  {entry.summary}
+                </span>
+              </div>
+              <span className="text-zinc-500">
+                {formatTimestampDisplay(entry.createdAt)}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-zinc-500">
+              <span>
+                By{" "}
+                <strong className="font-normal text-zinc-700 dark:text-zinc-300">
+                  {formatActivityActorLabel(entry, currentUserId, members)}
+                </strong>
+              </span>
+            </div>
+
+            {Array.isArray(entry.changes) && entry.changes.length > 0 && (
+              <ul className="mt-0.5 flex flex-col gap-1 border-l-2 border-zinc-200 pl-2.5 text-[11px] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+                {entry.changes.map((change, idx) => {
+                  const fieldLabel =
+                    ACTIVITY_FIELD_LABELS[change.field] ?? change.field;
+                  const isTransition =
+                    change.before !== null && change.after !== null;
+                  const isRemoval =
+                    change.before !== null &&
+                    change.after === null &&
+                    entry.eventType === "dependency.removed";
+
+                  return (
+                    <li
+                      key={`${entry.id}-${change.field}-${idx}`}
+                      className="flex flex-wrap items-center gap-1"
+                    >
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                        {fieldLabel}:
+                      </span>
+                      {isTransition ||
+                      entry.eventType.endsWith("_changed") ||
+                      entry.eventType.endsWith(".updated") ||
+                      entry.eventType === "project.archived" ||
+                      entry.eventType === "project.unarchived" ||
+                      entry.eventType === "review.decision_updated" ? (
+                        <>
+                          <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-zinc-700 line-through dark:bg-zinc-800 dark:text-zinc-400">
+                            {change.beforeDisplay}
+                          </span>
+                          <span aria-hidden="true">→</span>
+                          <span className="rounded bg-emerald-100/70 px-1.5 py-0.5 font-medium text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                            {change.afterDisplay}
+                          </span>
+                        </>
+                      ) : isRemoval ? (
+                        <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-zinc-700 line-through dark:bg-zinc-800 dark:text-zinc-400">
+                          {change.beforeDisplay}
+                        </span>
+                      ) : (
+                        <span className="rounded bg-zinc-200/60 px-1.5 py-0.5 font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                          {change.afterDisplay}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {reviewComment && (
+              <p className="mt-0.5 rounded border border-zinc-200 bg-white/80 px-2 py-1 text-[11px] text-zinc-700 whitespace-pre-wrap dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
+                &ldquo;{reviewComment}&rdquo;
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+type TaskActivitySectionProps = {
+  organizationSlug: string;
+  projectId: string;
+  task: TaskSummary;
+  currentUserId: string;
+  members: MemberOption[];
+  seededActivities: ActivityEntrySummary[];
+  parentLoading: boolean;
+};
+
+function TaskActivitySection({
+  organizationSlug,
+  projectId,
+  task,
+  currentUserId,
+  members,
+  seededActivities,
+  parentLoading,
+}: TaskActivitySectionProps) {
+  const endpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/activity`;
+
+  const [fetchedActivities, setFetchedActivities] = useState<
+    ActivityEntrySummary[] | null
+  >(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadTaskActivity = useCallback(
+    async (cursor?: string | null) => {
+      if (cursor) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      const params = new URLSearchParams({ limit: "10" });
+      if (cursor) {
+        params.set("cursor", cursor);
+      }
+
+      try {
+        const response = await fetch(`${endpoint}?${params.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          const message = await readApiError(
+            response,
+            "Unable to load task activity.",
+          );
+          setError(message);
+          return;
+        }
+
+        const data = (await response.json()) as {
+          activities?: ActivityEntrySummary[];
+          nextCursor?: string | null;
+        };
+        const incoming = Array.isArray(data.activities) ? data.activities : [];
+
+        setFetchedActivities((prev) =>
+          cursor && prev
+            ? sortAndDedupeActivitiesNewestFirst([...prev, ...incoming])
+            : incoming,
+        );
+        setNextCursor(
+          typeof data.nextCursor === "string" ? data.nextCursor : null,
+        );
+      } catch {
+        setError("Network error while loading task activity. Please try again.");
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [endpoint],
+  );
+
+  const combinedActivities = sortAndDedupeActivitiesNewestFirst([
+    ...seededActivities,
+    ...(fetchedActivities ?? []),
+  ]);
+
+  const isInitialLoading =
+    loading || (fetchedActivities === null && parentLoading);
+
+  return (
+    <div className="mt-2 flex flex-col gap-2 border-t border-zinc-200 pt-2.5 text-xs dark:border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h5 className="font-medium text-zinc-700 dark:text-zinc-300">
+          Task Activity ({combinedActivities.length})
+        </h5>
+        <div className="flex items-center gap-1.5">
+          {error && (
+            <button
+              type="button"
+              disabled={loading || loadingMore}
+              onClick={() => void loadTaskActivity(null)}
+              className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Retry
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={loading || loadingMore}
+            onClick={() => void loadTaskActivity(null)}
+            className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {loading
+              ? "Loading…"
+              : fetchedActivities === null
+                ? "Load full task activity"
+                : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <p role="alert" className="text-red-600">
+          {error}
+        </p>
+      )}
+
+      {isInitialLoading && combinedActivities.length === 0 ? (
+        <p className="text-zinc-500">Loading task activity…</p>
+      ) : combinedActivities.length === 0 ? (
+        <p className="text-zinc-500">No activity recorded for this task yet.</p>
+      ) : (
+        <>
+          <ActivityTimelineList
+            activities={combinedActivities}
+            currentUserId={currentUserId}
+            members={members}
+            compact
+          />
+          {nextCursor && (
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={() => void loadTaskActivity(nextCursor)}
+              className="self-start rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {loadingMore ? "Loading more…" : "Load more task activity"}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+type ProjectActivitySectionProps = {
+  activities: ActivityEntrySummary[];
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  hasMore: boolean;
+  currentUserId: string;
+  members: MemberOption[];
+  onRefresh: () => void;
+  onLoadMore: () => void;
+};
+
+function ProjectActivitySection({
+  activities,
+  loading,
+  loadingMore,
+  error,
+  hasMore,
+  currentUserId,
+  members,
+  onRefresh,
+  onLoadMore,
+}: ProjectActivitySectionProps) {
+  return (
+    <section
+      aria-label="Project Activity"
+      className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-medium">Project Activity</h2>
+          <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            {activities.length}
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={loading || loadingMore}
+          onClick={onRefresh}
+          className="rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {loading ? "Loading…" : error ? "Retry" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      )}
+
+      {loading && activities.length === 0 ? (
+        <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+          Loading project activity…
+        </p>
+      ) : activities.length === 0 ? (
+        <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+          No activity recorded for this project yet.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <ActivityTimelineList
+            activities={activities}
+            currentUserId={currentUserId}
+            members={members}
+          />
+          {hasMore && (
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={onLoadMore}
+              className="self-start rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {loadingMore ? "Loading more…" : "Load more activity"}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -867,6 +2033,8 @@ export function TasksClient({
   const [tasks, setTasks] = useState<TaskWithSubtasks[]>(initialTasks);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  const [deliverableStatusFilter, setDeliverableStatusFilter] =
+    useState<DeliverableStatusFilterOption>("all");
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -912,7 +2080,199 @@ export function TasksClient({
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const actionInFlight = useRef(false);
 
+  // Project-level activity state (also seeds per-task activity without N+1 requests)
+  const [projectActivities, setProjectActivities] = useState<
+    ActivityEntrySummary[]
+  >([]);
+  const [projectActivityCursor, setProjectActivityCursor] = useState<
+    string | null
+  >(null);
+  const [projectActivityLoading, setProjectActivityLoading] = useState(true);
+  const [projectActivityLoadingMore, setProjectActivityLoadingMore] =
+    useState(false);
+  const [projectActivityError, setProjectActivityError] = useState<
+    string | null
+  >(null);
+
   const tasksApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks`;
+  const projectActivityApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/activity`;
+
+  const refreshProjectActivity = useCallback(async () => {
+    setProjectActivityLoading(true);
+    setProjectActivityError(null);
+    try {
+      const response = await fetch(`${projectActivityApiUrl}?limit=15`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Unable to load project activity.",
+        );
+        setProjectActivityError(message);
+        return;
+      }
+
+      const data = (await response.json()) as {
+        activities?: ActivityEntrySummary[];
+        nextCursor?: string | null;
+      };
+      setProjectActivities(
+        Array.isArray(data.activities) ? data.activities : [],
+      );
+      setProjectActivityCursor(
+        typeof data.nextCursor === "string" ? data.nextCursor : null,
+      );
+    } catch {
+      setProjectActivityError(
+        "Network error while loading project activity. Please try again.",
+      );
+    } finally {
+      setProjectActivityLoading(false);
+    }
+  }, [projectActivityApiUrl, router]);
+
+  const loadMoreProjectActivity = useCallback(async () => {
+    if (!projectActivityCursor || projectActivityLoadingMore) return;
+    setProjectActivityLoadingMore(true);
+    setProjectActivityError(null);
+
+    try {
+      const params = new URLSearchParams({
+        limit: "15",
+        cursor: projectActivityCursor,
+      });
+      const response = await fetch(
+        `${projectActivityApiUrl}?${params.toString()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Unable to load more project activity.",
+        );
+        setProjectActivityError(message);
+        return;
+      }
+
+      const data = (await response.json()) as {
+        activities?: ActivityEntrySummary[];
+        nextCursor?: string | null;
+      };
+      const incoming = Array.isArray(data.activities) ? data.activities : [];
+      setProjectActivities((prev) =>
+        sortAndDedupeActivitiesNewestFirst([...prev, ...incoming]),
+      );
+      setProjectActivityCursor(
+        typeof data.nextCursor === "string" ? data.nextCursor : null,
+      );
+    } catch {
+      setProjectActivityError(
+        "Network error while loading more project activity. Please try again.",
+      );
+    } finally {
+      setProjectActivityLoadingMore(false);
+    }
+  }, [projectActivityApiUrl, projectActivityCursor, projectActivityLoadingMore, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchInitialProjectActivity() {
+      try {
+        const response = await fetch(`${projectActivityApiUrl}?limit=15`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
+
+        if (!response.ok) {
+          const message = await readApiError(
+            response,
+            "Unable to load project activity.",
+          );
+          if (!cancelled) {
+            setProjectActivityError(message);
+          }
+          return;
+        }
+
+        const data = (await response.json()) as {
+          activities?: ActivityEntrySummary[];
+          nextCursor?: string | null;
+        };
+        if (!cancelled) {
+          setProjectActivities(
+            Array.isArray(data.activities) ? data.activities : [],
+          );
+          setProjectActivityCursor(
+            typeof data.nextCursor === "string" ? data.nextCursor : null,
+          );
+          setProjectActivityError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setProjectActivityError(
+            "Network error while loading project activity. Please try again.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setProjectActivityLoading(false);
+        }
+      }
+    }
+
+    void fetchInitialProjectActivity();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectActivityApiUrl, router]);
+
+  const handleTaskDeliverableStatusChange = useCallback(
+    (taskId: string, nextStatus: TaskDeliverableStatus) => {
+      setTasks((prevTasks) =>
+        prevTasks.map((t) => {
+          if (t.id === taskId) {
+            return { ...t, deliverableStatus: nextStatus };
+          }
+          if (t.subtasks.some((sub) => sub.id === taskId)) {
+            return {
+              ...t,
+              subtasks: t.subtasks.map((sub) =>
+                sub.id === taskId
+                  ? { ...sub, deliverableStatus: nextStatus }
+                  : sub,
+              ),
+            };
+          }
+          return t;
+        }),
+      );
+    },
+    [],
+  );
 
   function canEditTask(task: TaskSummary): boolean {
     if (isProjectArchived) return false;
@@ -929,6 +2289,7 @@ export function TasksClient({
   async function refreshTasks(
     nextStatusFilter: StatusFilter,
     nextAssigneeFilter: string,
+    nextDeliverableStatusFilter: DeliverableStatusFilterOption = deliverableStatusFilter,
   ) {
     setListLoading(true);
     setListError(null);
@@ -941,6 +2302,9 @@ export function TasksClient({
       params.set("assigneeId", "null");
     } else if (nextAssigneeFilter !== "all") {
       params.set("assigneeId", nextAssigneeFilter);
+    }
+    if (nextDeliverableStatusFilter !== "all") {
+      params.set("deliverableStatus", nextDeliverableStatusFilter);
     }
     const queryString = params.toString();
 
@@ -976,8 +2340,12 @@ export function TasksClient({
 
       const tasksWithSubtasks: TaskWithSubtasks[] = await Promise.all(
         topLevelTasks.map(async (parentTask) => {
+          const subParams = new URLSearchParams({ parentTaskId: parentTask.id });
+          if (nextDeliverableStatusFilter !== "all") {
+            subParams.set("deliverableStatus", nextDeliverableStatusFilter);
+          }
           const subRes = await fetch(
-            `${tasksApiUrl}?parentTaskId=${encodeURIComponent(parentTask.id)}`,
+            `${tasksApiUrl}?${subParams.toString()}`,
             {
               method: "GET",
               cache: "no-store",
@@ -1007,7 +2375,7 @@ export function TasksClient({
     setActionError(null);
     setActionErrorTaskId(null);
     setActionSuccess(null);
-    await refreshTasks(nextStatus, assigneeFilter);
+    await refreshTasks(nextStatus, assigneeFilter, deliverableStatusFilter);
   }
 
   async function onAssigneeFilterChange(nextAssignee: string) {
@@ -1015,7 +2383,17 @@ export function TasksClient({
     setActionError(null);
     setActionErrorTaskId(null);
     setActionSuccess(null);
-    await refreshTasks(statusFilter, nextAssignee);
+    await refreshTasks(statusFilter, nextAssignee, deliverableStatusFilter);
+  }
+
+  async function onDeliverableStatusFilterChange(
+    nextDeliverableStatus: DeliverableStatusFilterOption,
+  ) {
+    setDeliverableStatusFilter(nextDeliverableStatus);
+    setActionError(null);
+    setActionErrorTaskId(null);
+    setActionSuccess(null);
+    await refreshTasks(statusFilter, assigneeFilter, nextDeliverableStatus);
   }
 
   async function onCreateTopLevelTask(event: SubmitEvent<HTMLFormElement>) {
@@ -1071,7 +2449,8 @@ export function TasksClient({
       setCreateDeadline("");
       setCreateApprovalRequired(true);
       setCreateSuccess("Task created.");
-      await refreshTasks(statusFilter, assigneeFilter);
+      await refreshTasks(statusFilter, assigneeFilter, deliverableStatusFilter);
+      void refreshProjectActivity();
       router.refresh();
     } catch {
       setCreateError("Could not reach the server. Please try again.");
@@ -1158,7 +2537,8 @@ export function TasksClient({
 
       setSubtaskParentId(null);
       setActionSuccess("Subtask created.");
-      await refreshTasks(statusFilter, assigneeFilter);
+      await refreshTasks(statusFilter, assigneeFilter, deliverableStatusFilter);
+      void refreshProjectActivity();
       router.refresh();
     } catch {
       setSubtaskError("Could not reach the server. Please try again.");
@@ -1225,7 +2605,8 @@ export function TasksClient({
       }
 
       setActionSuccess(`Updated "${task.title}" status to ${STATUS_LABELS[nextStatus]}.`);
-      await refreshTasks(statusFilter, assigneeFilter);
+      await refreshTasks(statusFilter, assigneeFilter, deliverableStatusFilter);
+      void refreshProjectActivity();
       router.refresh();
     } catch {
       setActionError("Could not reach the server. Please try again.");
@@ -1300,7 +2681,8 @@ export function TasksClient({
 
       setEditingTaskId(null);
       setActionSuccess(`Updated "${trimmedTitle}".`);
-      await refreshTasks(statusFilter, assigneeFilter);
+      await refreshTasks(statusFilter, assigneeFilter, deliverableStatusFilter);
+      void refreshProjectActivity();
       router.refresh();
     } catch {
       setActionError("Could not reach the server. Please try again.");
@@ -1514,6 +2896,18 @@ export function TasksClient({
             <span className="rounded bg-zinc-100 px-2 py-0.5 font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
               {PRIORITY_LABELS[task.priority]}
             </span>
+            {task.isBlocked && (
+              <span className="rounded border border-amber-300 bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/70 dark:text-amber-200">
+                Blocked
+              </span>
+            )}
+            {task.deliverableStatus && (
+              <span
+                className={DELIVERABLE_STATUS_CLASSES[task.deliverableStatus]}
+              >
+                {DELIVERABLE_STATUS_LABELS[task.deliverableStatus]}
+              </span>
+            )}
             {editable ? (
               <select
                 aria-label={`Status for ${task.title}`}
@@ -1600,6 +2994,32 @@ export function TasksClient({
           canManage={canManage}
           currentUserId={currentUserId}
           members={members}
+          onDeliverableStatusChange={(status) =>
+            handleTaskDeliverableStatusChange(task.id, status)
+          }
+          onActivityRecorded={() => void refreshProjectActivity()}
+        />
+
+        <TaskDependenciesSection
+          organizationSlug={organizationSlug}
+          projectId={projectId}
+          task={task}
+          allTasks={tasks}
+          isProjectArchived={isProjectArchived}
+          canManage={canManage}
+          onActivityRecorded={() => void refreshProjectActivity()}
+        />
+
+        <TaskActivitySection
+          organizationSlug={organizationSlug}
+          projectId={projectId}
+          task={task}
+          currentUserId={currentUserId}
+          members={members}
+          seededActivities={projectActivities.filter(
+            (item) => item.taskId === task.id,
+          )}
+          parentLoading={projectActivityLoading}
         />
       </div>
     );
@@ -1679,6 +3099,36 @@ export function TasksClient({
                 ))}
               </select>
             </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-zinc-500">Deliverable:</span>
+              <select
+                disabled={listLoading}
+                aria-label="Filter tasks by deliverable status"
+                value={deliverableStatusFilter}
+                onChange={(event) =>
+                  void onDeliverableStatusFilterChange(
+                    event.target.value as DeliverableStatusFilterOption,
+                  )
+                }
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="all">All deliverable statuses</option>
+                <option value="needs_submission">Needs Submission</option>
+                <option value="in_review">In Review</option>
+                <option value="changes_requested">Changes Requested</option>
+                <option value="approved">Approved</option>
+              </select>
+            </label>
+            {deliverableStatusFilter !== "all" && (
+              <button
+                type="button"
+                disabled={listLoading}
+                onClick={() => void onDeliverableStatusFilterChange("all")}
+                className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                Reset filter
+              </button>
+            )}
           </div>
         </div>
 
@@ -1706,9 +3156,22 @@ export function TasksClient({
             Loading tasks…
           </p>
         ) : tasks.length === 0 ? (
-          <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
-            No tasks match the current filter.
-          </p>
+          <div className="flex flex-col items-center justify-center gap-2 rounded border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
+            <p>
+              {deliverableStatusFilter !== "all"
+                ? `No tasks with deliverable status "${DELIVERABLE_STATUS_FILTER_LABELS[deliverableStatusFilter]}" match the current filters.`
+                : "No tasks match the current filter."}
+            </p>
+            {deliverableStatusFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => void onDeliverableStatusFilterChange("all")}
+                className="rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Reset deliverable filter
+              </button>
+            )}
+          </div>
         ) : (
           <ul className="flex flex-col gap-3">
             {tasks.map((task) => {
@@ -2016,6 +3479,18 @@ export function TasksClient({
           </button>
         </form>
       )}
+
+      <ProjectActivitySection
+        activities={projectActivities}
+        loading={projectActivityLoading}
+        loadingMore={projectActivityLoadingMore}
+        error={projectActivityError}
+        hasMore={projectActivityCursor !== null}
+        currentUserId={currentUserId}
+        members={members}
+        onRefresh={() => void refreshProjectActivity()}
+        onLoadMore={() => void loadMoreProjectActivity()}
+      />
     </div>
   );
 }

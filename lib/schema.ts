@@ -30,6 +30,46 @@ export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const REVIEW_DECISIONS = ["approved", "changes_requested"] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 
+export const TASK_DELIVERABLE_STATUSES = [
+  "needs_submission",
+  "in_review",
+  "changes_requested",
+  "approved",
+] as const;
+export type TaskDeliverableStatus = (typeof TASK_DELIVERABLE_STATUSES)[number];
+
+export const ACTIVITY_TARGET_TYPES = [
+  "project",
+  "task",
+  "subtask",
+  "dependency",
+  "deliverable",
+  "review",
+] as const;
+export type ActivityTargetType = (typeof ACTIVITY_TARGET_TYPES)[number];
+
+export const ACTIVITY_EVENT_TYPES = [
+  "project.created",
+  "project.updated",
+  "project.archived",
+  "project.unarchived",
+  "task.created",
+  "subtask.created",
+  "task.updated",
+  "task.status_changed",
+  "task.priority_changed",
+  "task.assignee_changed",
+  "task.deadline_changed",
+  "task.approval_required_changed",
+  "dependency.added",
+  "dependency.removed",
+  "deliverable.submitted",
+  "review.approved",
+  "review.changes_requested",
+  "review.decision_updated",
+] as const;
+export type ActivityEventType = (typeof ACTIVITY_EVENT_TYPES)[number];
+
 // Plural names keep app-owned collections visually separate from Better Auth's
 // singular ones, and avoid clashing with its organization plugin
 // (`organization`, `member`, `invitation`) if that is ever enabled.
@@ -38,8 +78,10 @@ export const COLLECTIONS = {
   memberships: "memberships",
   projects: "projects",
   tasks: "tasks",
+  taskDependencies: "task_dependencies",
   deliverables: "deliverables",
   reviews: "reviews",
+  activities: "activities",
 } as const;
 
 export const DEFAULT_MONGODB_DB = "orchestr";
@@ -158,6 +200,52 @@ export type ReviewDoc = {
   reviewerId: UserId;
   decision: ReviewDecision;
   comment?: string | null;
+  createdAt: Date;
+};
+
+/**
+ * A directed dependency edge between two tasks within the same organization
+ * and project: `taskId` depends on `prerequisiteTaskId` (i.e. `prerequisiteTaskId`
+ * must reach `status === "done"` for `taskId` not to be blocked by it).
+ * Stored in a dedicated collection (`task_dependencies`) so routine task field
+ * updates never overwrite dependency edges and duplicate edges are prevented by
+ * a compound unique index.
+ */
+export type TaskDependencyDoc = {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  projectId: ObjectId;
+  taskId: ObjectId;
+  prerequisiteTaskId: ObjectId;
+  createdBy: UserId;
+  createdAt: Date;
+};
+
+export type ActivityFieldValue = string | number | boolean | null;
+
+export type ActivityFieldChange = {
+  field: string;
+  before: ActivityFieldValue;
+  after: ActivityFieldValue;
+};
+
+/**
+ * Append-only organization-scoped audit/activity record.
+ * `actorId` is always derived from the authenticated Better Auth session.
+ * Never edited or deleted through application APIs.
+ */
+export type ActivityDoc = {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  projectId: ObjectId | null;
+  taskId: ObjectId | null;
+  actorId: UserId;
+  eventType: ActivityEventType;
+  targetType: ActivityTargetType;
+  targetId: ObjectId;
+  summary: string;
+  changes: ActivityFieldChange[];
+  metadata?: Record<string, ActivityFieldValue> | null;
   createdAt: Date;
 };
 
@@ -354,6 +442,117 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
       {
         key: { organizationId: 1, taskId: 1, deliverableId: 1, createdAt: -1 },
         name: "org_task_deliverable_created",
+      },
+    ],
+  },
+  {
+    name: COLLECTIONS.taskDependencies,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "projectId",
+        "taskId",
+        "prerequisiteTaskId",
+        "createdBy",
+        "createdAt",
+      ],
+      properties: {
+        organizationId: objectId,
+        projectId: objectId,
+        taskId: objectId,
+        prerequisiteTaskId: objectId,
+        createdBy: userId,
+        createdAt: date,
+      },
+    },
+    indexes: [
+      // One dependency edge per (organizationId, projectId, taskId, prerequisiteTaskId);
+      // also serves "prerequisites of task X in project P".
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          taskId: 1,
+          prerequisiteTaskId: 1,
+        },
+        name: "org_project_task_prereq_unique",
+        unique: true,
+      },
+      // Reverse lookup: "which tasks in project P depend on prerequisite task Y?"
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          prerequisiteTaskId: 1,
+          taskId: 1,
+        },
+        name: "org_project_prereq_task",
+      },
+    ],
+  },
+  {
+    name: COLLECTIONS.activities,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "projectId",
+        "taskId",
+        "actorId",
+        "eventType",
+        "targetType",
+        "targetId",
+        "summary",
+        "changes",
+        "createdAt",
+      ],
+      properties: {
+        organizationId: objectId,
+        projectId: { bsonType: ["objectId", "null"] },
+        taskId: { bsonType: ["objectId", "null"] },
+        actorId: userId,
+        eventType: { enum: [...ACTIVITY_EVENT_TYPES] },
+        targetType: { enum: [...ACTIVITY_TARGET_TYPES] },
+        targetId: objectId,
+        summary: { bsonType: "string", minLength: 1, maxLength: 1000 },
+        changes: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["field", "before", "after"],
+            properties: {
+              field: { bsonType: "string", minLength: 1, maxLength: 100 },
+              before: { bsonType: ["string", "number", "bool", "null"] },
+              after: { bsonType: ["string", "number", "bool", "null"] },
+            },
+          },
+        },
+        metadata: { bsonType: ["object", "null"] },
+        createdAt: date,
+      },
+    },
+    indexes: [
+      // Organization activity timeline, newest first with deterministic tie-breaker.
+      {
+        key: { organizationId: 1, createdAt: -1, _id: -1 },
+        name: "org_created_id",
+      },
+      // Project activity timeline within an organization, newest first.
+      {
+        key: { organizationId: 1, projectId: 1, createdAt: -1, _id: -1 },
+        name: "org_project_created_id",
+      },
+      // Task activity timeline within an organization and project, newest first.
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          taskId: 1,
+          createdAt: -1,
+          _id: -1,
+        },
+        name: "org_project_task_created_id",
       },
     ],
   },

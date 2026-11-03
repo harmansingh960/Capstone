@@ -3,15 +3,36 @@ import type { ObjectId } from "mongodb";
 import type { TaskDoc, TaskPriority, TaskStatus } from "@/lib/schema";
 import {
   createTask,
+  filterTasksByDeliverableStatus,
   getOrganizationBySlug,
+  getTaskDeliverableStatus,
+  getTasksBlockerSummaries,
+  getTasksDeliverableStatuses,
   listProjectTasks,
   parseObjectId,
   requireSessionUserId,
   TenantAccessError,
   TenantValidationError,
+  validateDeliverableStatusFilter,
   type ListProjectTasksFilter,
+  type TaskBlockerSummary,
+  type TaskDeliverableStatus,
+  type TaskDependencyItem,
   type UserOrganization,
 } from "@/lib/tenancy";
+
+type TaskDependencyDto = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  prerequisiteTaskId: string;
+  prerequisiteTitle: string;
+  prerequisiteStatus: TaskStatus;
+  prerequisiteParentTaskId: string | null;
+  isBlocking: boolean;
+  createdBy: string;
+  createdAt: string;
+};
 
 type TaskDto = {
   id: string;
@@ -24,6 +45,11 @@ type TaskDto = {
   assigneeId: string | null;
   deadline: string | null;
   approvalRequired: boolean;
+  isBlocked: boolean;
+  blockerCount: number;
+  dependencyCount: number;
+  dependencies: TaskDependencyDto[];
+  deliverableStatus: TaskDeliverableStatus | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -49,7 +75,29 @@ const LIFECYCLE_CONFLICT_MESSAGES: ReadonlySet<string> = new Set([
   "Cannot mark task as done: the latest deliverable submission has not been approved.",
 ]);
 
-function toTaskDto(task: TaskDoc): TaskDto {
+function toTaskDependencyDto(item: TaskDependencyItem): TaskDependencyDto {
+  return {
+    id: item.id,
+    projectId: item.projectId,
+    taskId: item.taskId,
+    prerequisiteTaskId: item.prerequisiteTaskId,
+    prerequisiteTitle: item.prerequisiteTitle,
+    prerequisiteStatus: item.prerequisiteStatus,
+    prerequisiteParentTaskId: item.prerequisiteParentTaskId,
+    isBlocking: item.isBlocking,
+    createdBy: item.createdBy,
+    createdAt: item.createdAt.toISOString(),
+  };
+}
+
+function toTaskDto(
+  task: TaskDoc,
+  blockerSummary?: TaskBlockerSummary,
+  deliverableStatus?: TaskDeliverableStatus | null,
+): TaskDto {
+  const dependencies = blockerSummary
+    ? blockerSummary.dependencies.map(toTaskDependencyDto)
+    : [];
   return {
     id: task._id.toHexString(),
     projectId: task.projectId.toHexString(),
@@ -61,6 +109,11 @@ function toTaskDto(task: TaskDoc): TaskDto {
     assigneeId: task.assigneeId,
     deadline: task.deadline ? task.deadline.toISOString() : null,
     approvalRequired: task.approvalRequired === true,
+    isBlocked: blockerSummary?.isBlocked ?? false,
+    blockerCount: blockerSummary?.blockerCount ?? 0,
+    dependencyCount: blockerSummary?.dependencyCount ?? 0,
+    dependencies,
+    deliverableStatus: deliverableStatus ?? null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
   };
@@ -153,6 +206,10 @@ export async function GET(
       filter.assigneeId = rawAssigneeId === "null" ? null : rawAssigneeId;
     }
 
+    const deliverableStatusFilter = validateDeliverableStatusFilter(
+      searchParams.get("deliverableStatus"),
+    );
+
     const tasks = await listProjectTasks(
       organization._id,
       parsedProjectId,
@@ -160,8 +217,37 @@ export async function GET(
       request.headers,
     );
 
+    const deliverableStatuses = await getTasksDeliverableStatuses(
+      organization._id,
+      parsedProjectId,
+      tasks,
+      request.headers,
+    );
+
+    const filteredTasks = filterTasksByDeliverableStatus(
+      tasks,
+      deliverableStatuses,
+      deliverableStatusFilter,
+    );
+
+    const blockerSummaries = await getTasksBlockerSummaries(
+      organization._id,
+      parsedProjectId,
+      filteredTasks.map((task) => task._id),
+      request.headers,
+    );
+
     return Response.json(
-      { tasks: tasks.map(toTaskDto) },
+      {
+        tasks: filteredTasks.map((task) => {
+          const hex = task._id.toHexString();
+          return toTaskDto(
+            task,
+            blockerSummaries.get(hex),
+            deliverableStatuses.get(hex),
+          );
+        }),
+      },
       { status: 200 },
     );
   } catch (error) {
@@ -294,7 +380,18 @@ export async function POST(
       request.headers,
     );
 
-    return Response.json({ task: toTaskDto(task) }, { status: 201 });
+    const deliverableStatus = await getTaskDeliverableStatus(
+      organization._id,
+      parsedProjectId,
+      task._id,
+      task.approvalRequired === true,
+      request.headers,
+    );
+
+    return Response.json(
+      { task: toTaskDto(task, undefined, deliverableStatus) },
+      { status: 201 },
+    );
   } catch (error) {
     if (error instanceof TenantValidationError) {
       if (error.message === PROJECT_NOT_IN_ORG_MESSAGE) {

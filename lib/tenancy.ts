@@ -5,11 +5,18 @@ import { getAuth } from "@/lib/auth";
 import { getCollections } from "@/lib/collections";
 import { getDb, getMongoClient } from "@/lib/db";
 import {
+  ACTIVITY_EVENT_TYPES,
+  ACTIVITY_TARGET_TYPES,
   MEMBERSHIP_ROLES,
   PROJECT_STATUSES,
   REVIEW_DECISIONS,
   TASK_PRIORITIES,
   TASK_STATUSES,
+  type ActivityDoc,
+  type ActivityEventType,
+  type ActivityFieldChange,
+  type ActivityFieldValue,
+  type ActivityTargetType,
   type DeliverableDoc,
   type MembershipDoc,
   type MembershipRole,
@@ -18,11 +25,26 @@ import {
   type ProjectStatus,
   type ReviewDecision,
   type ReviewDoc,
+  TASK_DELIVERABLE_STATUSES,
+  type TaskDeliverableStatus,
+  type TaskDependencyDoc,
   type TaskDoc,
   type TaskPriority,
   type TaskStatus,
   type UserId,
 } from "@/lib/schema";
+
+export {
+  ACTIVITY_EVENT_TYPES,
+  ACTIVITY_TARGET_TYPES,
+  TASK_DELIVERABLE_STATUSES,
+  type ActivityDoc,
+  type ActivityEventType,
+  type ActivityFieldChange,
+  type ActivityFieldValue,
+  type ActivityTargetType,
+  type TaskDeliverableStatus,
+};
 
 // Tenant boundary rules enforced by this module:
 //   1. The acting user ID is always derived on the server from the Better Auth
@@ -751,7 +773,67 @@ function isTransactionsUnsupportedError(error: unknown): boolean {
   const code = "code" in error ? (error as { code?: unknown }).code : undefined;
   const codeName =
     "codeName" in error ? (error as { codeName?: unknown }).codeName : undefined;
-  return code === 20 || code === 303 || codeName === "IllegalOperation";
+  return (
+    code === 20 ||
+    code === 303 ||
+    code === 263 ||
+    codeName === "IllegalOperation" ||
+    codeName === "CannotImplicitlyCreateCollectionInfo"
+  );
+}
+
+const ACTIVITY_STATUS_LABELS: Record<TaskStatus, string> = {
+  todo: "To do",
+  in_progress: "In progress",
+  done: "Done",
+};
+
+const ACTIVITY_PRIORITY_LABELS: Record<TaskPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+const ACTIVITY_REVIEW_LABELS: Record<ReviewDecision, string> = {
+  approved: "Approved",
+  changes_requested: "Changes requested",
+};
+
+type BuildActivityInput = {
+  organizationId: ObjectId;
+  projectId: ObjectId | null;
+  taskId: ObjectId | null;
+  actorId: UserId;
+  eventType: ActivityEventType;
+  targetType: ActivityTargetType;
+  targetId: ObjectId;
+  summary: string;
+  changes?: ActivityFieldChange[];
+  metadata?: Record<string, ActivityFieldValue> | null;
+  createdAt?: Date;
+};
+
+function buildActivityDoc(input: BuildActivityInput): ActivityDoc {
+  const rawSummary = input.summary.trim();
+  const summary =
+    rawSummary.length > 1000
+      ? `${rawSummary.slice(0, 997)}...`
+      : rawSummary || input.eventType;
+  return {
+    _id: new ObjectId(),
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+    taskId: input.taskId,
+    actorId: input.actorId,
+    eventType: input.eventType,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    summary,
+    changes: input.changes ?? [],
+    metadata: input.metadata ?? null,
+    createdAt: input.createdAt ?? new Date(),
+  };
 }
 
 /**
@@ -1393,7 +1475,7 @@ export async function createProject(
   const status =
     input.status !== undefined ? validateProjectStatus(input.status) : "active";
 
-  const { projects } = await getCollections();
+  const { projects, activities } = await getCollections();
   const now = new Date();
   const doc: ProjectDoc = {
     _id: new ObjectId(),
@@ -1405,7 +1487,39 @@ export async function createProject(
     createdAt: now,
     updatedAt: now,
   };
-  await projects.insertOne(doc);
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: doc._id,
+    taskId: null,
+    actorId: membership.userId,
+    eventType: "project.created",
+    targetType: "project",
+    targetId: doc._id,
+    summary: `Created project "${doc.name}"`,
+    changes: [
+      { field: "name", before: null, after: doc.name },
+      ...(doc.description !== null && doc.description !== undefined
+        ? [{ field: "description", before: null, after: doc.description }]
+        : []),
+      { field: "status", before: null, after: doc.status },
+    ],
+    metadata: {
+      projectName: doc.name,
+      status: doc.status,
+    },
+    createdAt: now,
+  });
+
+  await runInTransactionOrFallback(
+    async (session) => {
+      await projects.insertOne(doc, { session });
+      await activities.insertOne(activityDoc, { session });
+    },
+    async () => {
+      await projects.insertOne(doc);
+      await activities.insertOne(activityDoc);
+    },
+  );
   return doc;
 }
 
@@ -1484,7 +1598,7 @@ export async function updateProject(
     updates.status = validateProjectStatus(input.status);
   }
 
-  const { projects } = await getCollections();
+  const { projects, activities } = await getCollections();
   const existing = await projects.findOne({
     _id: projectId,
     organizationId: membership.organizationId,
@@ -1503,10 +1617,114 @@ export async function updateProject(
     );
   }
 
-  return projects.findOneAndUpdate(
-    { _id: projectId, organizationId: membership.organizationId },
-    { $set: updates },
-    { returnDocument: "after" },
+  const targetName = updates.name !== undefined ? updates.name : existing.name;
+  const targetDescription =
+    updates.description !== undefined
+      ? updates.description
+      : (existing.description ?? null);
+  const nameChanged = hasName && targetName !== existing.name;
+  const descriptionChanged =
+    hasDescription && targetDescription !== (existing.description ?? null);
+  const statusChanged =
+    hasStatus && updates.status !== undefined && updates.status !== existing.status;
+
+  const activityDocs: ActivityDoc[] = [];
+  if (nameChanged || descriptionChanged) {
+    const editChanges: ActivityFieldChange[] = [];
+    if (nameChanged) {
+      editChanges.push({
+        field: "name",
+        before: existing.name,
+        after: targetName,
+      });
+    }
+    if (descriptionChanged) {
+      editChanges.push({
+        field: "description",
+        before: existing.description ?? null,
+        after: targetDescription,
+      });
+    }
+    const editSummary =
+      nameChanged && descriptionChanged
+        ? `Updated name and description for project "${targetName}"`
+        : nameChanged
+          ? `Renamed project from "${existing.name}" to "${targetName}"`
+          : `Updated description for project "${targetName}"`;
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: membership.organizationId,
+        projectId: existing._id,
+        taskId: null,
+        actorId: membership.userId,
+        eventType: "project.updated",
+        targetType: "project",
+        targetId: existing._id,
+        summary: editSummary,
+        changes: editChanges,
+        metadata: { projectName: targetName },
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  if (statusChanged) {
+    const nextStatus = updates.status!;
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: membership.organizationId,
+        projectId: existing._id,
+        taskId: null,
+        actorId: membership.userId,
+        eventType:
+          nextStatus === "archived"
+            ? "project.archived"
+            : "project.unarchived",
+        targetType: "project",
+        targetId: existing._id,
+        summary:
+          nextStatus === "archived"
+            ? `Archived project "${targetName}"`
+            : `Unarchived project "${targetName}"`,
+        changes: [
+          {
+            field: "status",
+            before: existing.status,
+            after: nextStatus,
+          },
+        ],
+        metadata: {
+          projectName: targetName,
+          status: nextStatus,
+        },
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  return runInTransactionOrFallback<ProjectDoc | null>(
+    async (session) => {
+      const updated = await projects.findOneAndUpdate(
+        { _id: projectId, organizationId: membership.organizationId },
+        { $set: updates },
+        { returnDocument: "after", session },
+      );
+      if (updated && activityDocs.length > 0) {
+        await activities.insertMany(activityDocs, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await projects.findOneAndUpdate(
+        { _id: projectId, organizationId: membership.organizationId },
+        { $set: updates },
+        { returnDocument: "after" },
+      );
+      if (updated && activityDocs.length > 0) {
+        await activities.insertMany(activityDocs);
+      }
+      return updated;
+    },
   );
 }
 
@@ -1688,6 +1906,7 @@ export type ListProjectTasksFilter = {
   parentTaskId?: ObjectId | null;
   status?: TaskStatus;
   assigneeId?: UserId | null;
+  deliverableStatus?: DeliverableStatusFilter;
 };
 
 export async function createTask(
@@ -1781,7 +2000,7 @@ export async function createTask(
     );
   }
 
-  const { tasks } = await getCollections();
+  const { tasks, activities } = await getCollections();
   const now = new Date();
   const doc: TaskDoc = {
     _id: new ObjectId(),
@@ -1799,7 +2018,60 @@ export async function createTask(
     createdAt: now,
     updatedAt: now,
   };
-  await tasks.insertOne(doc);
+
+  const isSubtask = doc.parentTaskId !== null;
+  const activityDoc = buildActivityDoc({
+    organizationId: orgId,
+    projectId: project._id,
+    taskId: doc._id,
+    actorId: membership.userId,
+    eventType: isSubtask ? "subtask.created" : "task.created",
+    targetType: isSubtask ? "subtask" : "task",
+    targetId: doc._id,
+    summary: isSubtask
+      ? `Created subtask "${doc.title}"`
+      : `Created task "${doc.title}"`,
+    changes: [
+      { field: "title", before: null, after: doc.title },
+      ...(doc.description !== null && doc.description !== undefined
+        ? [{ field: "description", before: null, after: doc.description }]
+        : []),
+      { field: "status", before: null, after: doc.status },
+      { field: "priority", before: null, after: doc.priority },
+      { field: "assigneeId", before: null, after: doc.assigneeId },
+      ...(doc.deadline !== null
+        ? [
+            {
+              field: "deadline",
+              before: null,
+              after: doc.deadline.toISOString(),
+            },
+          ]
+        : []),
+      {
+        field: "approvalRequired",
+        before: null,
+        after: doc.approvalRequired === true,
+      },
+    ],
+    metadata: {
+      taskTitle: doc.title,
+      parentTaskId: doc.parentTaskId ? doc.parentTaskId.toHexString() : null,
+      isSubtask,
+    },
+    createdAt: now,
+  });
+
+  await runInTransactionOrFallback(
+    async (session) => {
+      await tasks.insertOne(doc, { session });
+      await activities.insertOne(activityDoc, { session });
+    },
+    async () => {
+      await tasks.insertOne(doc);
+      await activities.insertOne(activityDoc);
+    },
+  );
   return doc;
 }
 
@@ -1832,6 +2104,7 @@ export async function listProjectTasks(
   let statusFilter: TaskStatus | undefined;
   let hasAssigneeFilter = false;
   let assigneeIdFilter: UserId | null = null;
+  let deliverableStatusFilter: DeliverableStatusFilter = "all";
 
   if (filter !== undefined) {
     if (!isPlainObject(filter)) {
@@ -1850,6 +2123,11 @@ export async function listProjectTasks(
       hasAssigneeFilter = true;
       assigneeIdFilter = validateAssigneeId(filter.assigneeId);
     }
+    if (filter.deliverableStatus !== undefined) {
+      deliverableStatusFilter = validateDeliverableStatusFilter(
+        filter.deliverableStatus,
+      );
+    }
   }
 
   const { tasks } = await getCollections();
@@ -1863,6 +2141,22 @@ export async function listProjectTasks(
     })
     .sort({ createdAt: 1, _id: 1 })
     .toArray();
+
+  if (deliverableStatusFilter !== "all") {
+    const statuses = await getTasksDeliverableStatuses(
+      orgId,
+      projectId,
+      docs,
+      requestHeaders,
+    );
+    const filteredDocs = filterTasksByDeliverableStatus(
+      docs,
+      statuses,
+      deliverableStatusFilter,
+    );
+    return filteredDocs.map(normalizeTaskDoc);
+  }
+
   return docs.map(normalizeTaskDoc);
 }
 
@@ -1930,7 +2224,7 @@ export async function updateTask(
 
   const orgId = membership.organizationId;
   const isManager = isManagerRole(membership.role);
-  const { tasks } = await getCollections();
+  const { tasks, taskDependencies, activities } = await getCollections();
 
   const existing = await tasks.findOne({ _id: taskId, organizationId: orgId });
   if (!existing) {
@@ -2022,6 +2316,21 @@ export async function updateTask(
     if (targetProject.status === "archived") {
       throw new TenantValidationError("Cannot move a task into an archived project.");
     }
+    const linkedDependencyCount = await taskDependencies.countDocuments(
+      {
+        organizationId: orgId,
+        $or: [
+          { taskId: existing._id },
+          { prerequisiteTaskId: existing._id },
+        ],
+      },
+      { limit: 1 },
+    );
+    if (linkedDependencyCount > 0) {
+      throw new TenantValidationError(
+        "Cannot move a task with dependencies to a different project.",
+      );
+    }
   }
 
   if (projectChanged || targetParentTaskId !== null) {
@@ -2079,10 +2388,263 @@ export async function updateTask(
     );
   }
 
-  const updated = await tasks.findOneAndUpdate(
-    { _id: taskId, organizationId: orgId },
-    { $set: updates },
-    { returnDocument: "after" },
+  const existingNorm = normalizeTaskDoc(existing);
+  const nextTitle =
+    updates.title !== undefined ? updates.title : existingNorm.title;
+  const nextDescription =
+    updates.description !== undefined
+      ? updates.description
+      : (existingNorm.description ?? null);
+  const nextPriority =
+    updates.priority !== undefined ? updates.priority : existingNorm.priority;
+  const nextAssigneeId =
+    updates.assigneeId !== undefined
+      ? updates.assigneeId
+      : existingNorm.assigneeId;
+  const beforeDeadlineIso = existingNorm.deadline
+    ? existingNorm.deadline.toISOString()
+    : null;
+  const afterDeadlineIso = hasDeadline
+    ? updates.deadline
+      ? updates.deadline.toISOString()
+      : null
+    : beforeDeadlineIso;
+
+  const titleChanged = hasTitle && nextTitle !== existingNorm.title;
+  const descriptionChanged =
+    hasDescription && nextDescription !== (existingNorm.description ?? null);
+  const statusChanged = hasStatus && targetStatus !== existingNorm.status;
+  const priorityChanged = hasPriority && nextPriority !== existingNorm.priority;
+  const deadlineChanged = hasDeadline && beforeDeadlineIso !== afterDeadlineIso;
+  const approvalRequiredChanged =
+    hasApprovalRequired &&
+    effectiveApprovalRequired !== existingApprovalRequired;
+
+  const isSubtask = targetParentTaskId !== null;
+  const targetType: ActivityTargetType = isSubtask ? "subtask" : "task";
+  const entityNoun = isSubtask ? "subtask" : "task";
+  const baseMetadata: Record<string, ActivityFieldValue> = {
+    taskTitle: nextTitle,
+    parentTaskId: targetParentTaskId ? targetParentTaskId.toHexString() : null,
+    isSubtask,
+  };
+
+  const activityDocs: ActivityDoc[] = [];
+
+  if (titleChanged || descriptionChanged || parentChanged || projectChanged) {
+    const editChanges: ActivityFieldChange[] = [];
+    if (titleChanged) {
+      editChanges.push({
+        field: "title",
+        before: existingNorm.title,
+        after: nextTitle,
+      });
+    }
+    if (descriptionChanged) {
+      editChanges.push({
+        field: "description",
+        before: existingNorm.description ?? null,
+        after: nextDescription,
+      });
+    }
+    if (parentChanged) {
+      editChanges.push({
+        field: "parentTaskId",
+        before: existingNorm.parentTaskId
+          ? existingNorm.parentTaskId.toHexString()
+          : null,
+        after: targetParentTaskId ? targetParentTaskId.toHexString() : null,
+      });
+    }
+    if (projectChanged) {
+      editChanges.push({
+        field: "projectId",
+        before: existingNorm.projectId.toHexString(),
+        after: targetProjectId.toHexString(),
+      });
+    }
+
+    const editSummary =
+      titleChanged && descriptionChanged
+        ? `Updated title and description on ${entityNoun} "${nextTitle}"`
+        : titleChanged
+          ? `Renamed ${entityNoun} from "${existingNorm.title}" to "${nextTitle}"`
+          : descriptionChanged
+            ? `Updated description on ${entityNoun} "${nextTitle}"`
+            : `Updated ${entityNoun} "${nextTitle}"`;
+
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: orgId,
+        projectId: targetProjectId,
+        taskId: existing._id,
+        actorId: membership.userId,
+        eventType: "task.updated",
+        targetType,
+        targetId: existing._id,
+        summary: editSummary,
+        changes: editChanges,
+        metadata: baseMetadata,
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  if (statusChanged) {
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: orgId,
+        projectId: targetProjectId,
+        taskId: existing._id,
+        actorId: membership.userId,
+        eventType: "task.status_changed",
+        targetType,
+        targetId: existing._id,
+        summary: `Changed status of ${entityNoun} "${nextTitle}" from ${ACTIVITY_STATUS_LABELS[existingNorm.status]} to ${ACTIVITY_STATUS_LABELS[targetStatus]}`,
+        changes: [
+          {
+            field: "status",
+            before: existingNorm.status,
+            after: targetStatus,
+          },
+        ],
+        metadata: baseMetadata,
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  if (priorityChanged) {
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: orgId,
+        projectId: targetProjectId,
+        taskId: existing._id,
+        actorId: membership.userId,
+        eventType: "task.priority_changed",
+        targetType,
+        targetId: existing._id,
+        summary: `Changed priority of ${entityNoun} "${nextTitle}" from ${ACTIVITY_PRIORITY_LABELS[existingNorm.priority]} to ${ACTIVITY_PRIORITY_LABELS[nextPriority]}`,
+        changes: [
+          {
+            field: "priority",
+            before: existingNorm.priority,
+            after: nextPriority,
+          },
+        ],
+        metadata: baseMetadata,
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  if (assigneeChanged) {
+    const assigneeSummary =
+      nextAssigneeId === null
+        ? `Unassigned ${entityNoun} "${nextTitle}"`
+        : existingNorm.assigneeId === null
+          ? `Assigned ${entityNoun} "${nextTitle}"`
+          : `Reassigned ${entityNoun} "${nextTitle}"`;
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: orgId,
+        projectId: targetProjectId,
+        taskId: existing._id,
+        actorId: membership.userId,
+        eventType: "task.assignee_changed",
+        targetType,
+        targetId: existing._id,
+        summary: assigneeSummary,
+        changes: [
+          {
+            field: "assigneeId",
+            before: existingNorm.assigneeId ?? null,
+            after: nextAssigneeId ?? null,
+          },
+        ],
+        metadata: baseMetadata,
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  if (deadlineChanged) {
+    const deadlineSummary =
+      afterDeadlineIso === null
+        ? `Cleared deadline on ${entityNoun} "${nextTitle}"`
+        : beforeDeadlineIso === null
+          ? `Set deadline on ${entityNoun} "${nextTitle}" to ${afterDeadlineIso.slice(0, 10)}`
+          : `Changed deadline on ${entityNoun} "${nextTitle}" from ${beforeDeadlineIso.slice(0, 10)} to ${afterDeadlineIso.slice(0, 10)}`;
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: orgId,
+        projectId: targetProjectId,
+        taskId: existing._id,
+        actorId: membership.userId,
+        eventType: "task.deadline_changed",
+        targetType,
+        targetId: existing._id,
+        summary: deadlineSummary,
+        changes: [
+          {
+            field: "deadline",
+            before: beforeDeadlineIso,
+            after: afterDeadlineIso,
+          },
+        ],
+        metadata: baseMetadata,
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  if (approvalRequiredChanged) {
+    activityDocs.push(
+      buildActivityDoc({
+        organizationId: orgId,
+        projectId: targetProjectId,
+        taskId: existing._id,
+        actorId: membership.userId,
+        eventType: "task.approval_required_changed",
+        targetType,
+        targetId: existing._id,
+        summary: `${effectiveApprovalRequired ? "Enabled" : "Disabled"} deliverable approval requirement on ${entityNoun} "${nextTitle}"`,
+        changes: [
+          {
+            field: "approvalRequired",
+            before: existingApprovalRequired,
+            after: effectiveApprovalRequired,
+          },
+        ],
+        metadata: baseMetadata,
+        createdAt: updates.updatedAt,
+      }),
+    );
+  }
+
+  const updated = await runInTransactionOrFallback(
+    async (session) => {
+      const updatedDoc = await tasks.findOneAndUpdate(
+        { _id: taskId, organizationId: orgId },
+        { $set: updates },
+        { returnDocument: "after", session },
+      );
+      if (updatedDoc && activityDocs.length > 0) {
+        await activities.insertMany(activityDocs, { session });
+      }
+      return updatedDoc;
+    },
+    async () => {
+      const updatedDoc = await tasks.findOneAndUpdate(
+        { _id: taskId, organizationId: orgId },
+        { $set: updates },
+        { returnDocument: "after" },
+      );
+      if (updatedDoc && activityDocs.length > 0) {
+        await activities.insertMany(activityDocs);
+      }
+      return updatedDoc;
+    },
   );
   return updated ? normalizeTaskDoc(updated) : null;
 }
@@ -2156,19 +2718,43 @@ function validateReviewDecision(decision: unknown): ReviewDecision {
   return decision as ReviewDecision;
 }
 
-function validateReviewComment(comment: unknown): string | null {
+export const REVIEW_COMMENT_REQUIRED_MESSAGE =
+  "A review comment is required when requesting changes.";
+
+function validateReviewComment(
+  comment: unknown,
+  decision?: ReviewDecision,
+): string | null {
+  if (decision === "changes_requested") {
+    if (
+      comment === undefined ||
+      comment === null ||
+      typeof comment !== "string" ||
+      comment.trim() === ""
+    ) {
+      throw new TenantValidationError(REVIEW_COMMENT_REQUIRED_MESSAGE);
+    }
+  }
+
   if (comment === undefined || comment === null) {
     return null;
   }
   if (typeof comment !== "string") {
     throw new TenantValidationError("Review comment must be a string or null.");
   }
-  if (comment.length > REVIEW_COMMENT_MAX_LENGTH) {
+  const trimmed = comment.trim();
+  if (trimmed === "") {
+    if (decision === "changes_requested") {
+      throw new TenantValidationError(REVIEW_COMMENT_REQUIRED_MESSAGE);
+    }
+    return null;
+  }
+  if (trimmed.length > REVIEW_COMMENT_MAX_LENGTH) {
     throw new TenantValidationError(
       `Review comment must be at most ${REVIEW_COMMENT_MAX_LENGTH} characters.`,
     );
   }
-  return normalizeDescription(comment);
+  return trimmed;
 }
 
 export type CreateDeliverableInput = {
@@ -2245,7 +2831,14 @@ export async function createDeliverable(
     );
   }
 
-  const { deliverables } = await getCollections();
+  const { deliverables, activities } = await getCollections();
+  const priorCount = await deliverables.countDocuments({
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    taskId: task._id,
+  });
+  const submissionNumber = priorCount + 1;
+  const now = new Date();
   const doc: DeliverableDoc = {
     _id: new ObjectId(),
     organizationId: membership.organizationId,
@@ -2254,9 +2847,48 @@ export async function createDeliverable(
     submittedBy: membership.userId,
     description,
     url,
-    createdAt: new Date(),
+    createdAt: now,
   };
-  await deliverables.insertOne(doc);
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    taskId: task._id,
+    actorId: membership.userId,
+    eventType: "deliverable.submitted",
+    targetType: "deliverable",
+    targetId: doc._id,
+    summary:
+      submissionNumber > 1
+        ? `Submitted revised deliverable #${submissionNumber} for "${task.title}"`
+        : `Submitted deliverable #${submissionNumber} for "${task.title}"`,
+    changes: [
+      ...(doc.description !== null && doc.description !== undefined
+        ? [{ field: "description", before: null, after: doc.description }]
+        : []),
+      ...(doc.url !== null && doc.url !== undefined
+        ? [{ field: "url", before: null, after: doc.url }]
+        : []),
+    ],
+    metadata: {
+      taskTitle: task.title,
+      deliverableId: doc._id.toHexString(),
+      submissionNumber,
+      isRevision: submissionNumber > 1,
+      parentTaskId: task.parentTaskId ? task.parentTaskId.toHexString() : null,
+    },
+    createdAt: now,
+  });
+
+  await runInTransactionOrFallback(
+    async (session) => {
+      await deliverables.insertOne(doc, { session });
+      await activities.insertOne(activityDoc, { session });
+    },
+    async () => {
+      await deliverables.insertOne(doc);
+      await activities.insertOne(activityDoc);
+    },
+  );
   return doc;
 }
 
@@ -2301,6 +2933,55 @@ export async function listTaskDeliverables(
     })
     .sort({ createdAt: -1, _id: -1 })
     .toArray();
+}
+
+export type DeliverableWithReviewsDoc = DeliverableDoc & {
+  reviews: ReviewDoc[];
+};
+
+export async function listTaskDeliverablesWithReviews(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskId: ObjectId,
+  requestHeaders?: Headers,
+): Promise<DeliverableWithReviewsDoc[]> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  await requireProjectInOrg(membership, projectId);
+  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+
+  const { deliverables, reviews } = await getCollections();
+  const orgId = membership.organizationId;
+
+  const [delivDocs, reviewDocs] = await Promise.all([
+    deliverables
+      .find({ organizationId: orgId, projectId, taskId })
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray(),
+    reviews
+      .find({ organizationId: orgId, projectId, taskId })
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray(),
+  ]);
+
+  const reviewsByDeliverableId = new Map<string, ReviewDoc[]>();
+  for (const r of reviewDocs) {
+    const delivHex = r.deliverableId.toHexString();
+    const list = reviewsByDeliverableId.get(delivHex);
+    if (list) {
+      list.push(r);
+    } else {
+      reviewsByDeliverableId.set(delivHex, [r]);
+    }
+  }
+
+  return delivDocs.map((d) => ({
+    ...d,
+    reviews: reviewsByDeliverableId.get(d._id.toHexString()) ?? [],
+  }));
 }
 
 /**
@@ -2352,9 +3033,21 @@ export async function createReview(
   }
 
   const decision = validateReviewDecision(input.decision);
-  const comment = validateReviewComment(input.comment);
+  const comment = validateReviewComment(input.comment, decision);
 
-  const { reviews } = await getCollections();
+  const { reviews, activities } = await getCollections();
+  const previousReview = await reviews.findOne(
+    {
+      organizationId: membership.organizationId,
+      projectId: project._id,
+      taskId: deliverable.taskId,
+      deliverableId: deliverable._id,
+    },
+    { sort: { createdAt: -1, _id: -1 } },
+  );
+
+  const isSubsequentReview = previousReview !== null;
+  const now = new Date();
   const doc: ReviewDoc = {
     _id: new ObjectId(),
     organizationId: membership.organizationId,
@@ -2364,9 +3057,69 @@ export async function createReview(
     reviewerId: membership.userId,
     decision,
     comment,
-    createdAt: new Date(),
+    createdAt: now,
   };
-  await reviews.insertOne(doc);
+
+  const eventType: ActivityEventType = isSubsequentReview
+    ? "review.decision_updated"
+    : decision === "approved"
+      ? "review.approved"
+      : "review.changes_requested";
+
+  const summary = isSubsequentReview
+    ? `Updated review decision on "${task.title}" from ${ACTIVITY_REVIEW_LABELS[previousReview.decision]} to ${ACTIVITY_REVIEW_LABELS[decision]}`
+    : decision === "approved"
+      ? `Approved deliverable for "${task.title}"`
+      : `Requested changes on deliverable for "${task.title}"`;
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    taskId: deliverable.taskId,
+    actorId: membership.userId,
+    eventType,
+    targetType: "review",
+    targetId: doc._id,
+    summary,
+    changes: [
+      {
+        field: "decision",
+        before: previousReview ? previousReview.decision : null,
+        after: decision,
+      },
+      ...(comment !== null
+        ? [
+            {
+              field: "comment",
+              before: previousReview ? (previousReview.comment ?? null) : null,
+              after: comment,
+            },
+          ]
+        : []),
+    ],
+    metadata: {
+      taskTitle: task.title,
+      deliverableId: deliverable._id.toHexString(),
+      reviewId: doc._id.toHexString(),
+      decision,
+      previousDecision: previousReview ? previousReview.decision : null,
+      isSubsequentReview,
+      isSelfReview: membership.userId === deliverable.submittedBy,
+      parentTaskId: task.parentTaskId ? task.parentTaskId.toHexString() : null,
+    },
+    createdAt: now,
+  });
+
+  await runInTransactionOrFallback(
+    async (session) => {
+      await reviews.insertOne(doc, { session });
+      await activities.insertOne(activityDoc, { session });
+    },
+    async () => {
+      await reviews.insertOne(doc);
+      await activities.insertOne(activityDoc);
+    },
+  );
   return doc;
 }
 
@@ -2426,4 +3179,1283 @@ export async function listTaskReviews(
     })
     .sort({ createdAt: -1, _id: -1 })
     .toArray();
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped task dependencies & blocker derivation
+// ---------------------------------------------------------------------------
+
+export const DUPLICATE_TASK_DEPENDENCY_MESSAGE =
+  "This task dependency already exists.";
+export const CIRCULAR_TASK_DEPENDENCY_MESSAGE =
+  "Cannot add dependency: circular dependency chains are not allowed.";
+export const SELF_TASK_DEPENDENCY_MESSAGE =
+  "A task cannot depend on itself.";
+export const ARCHIVED_PROJECT_DEPENDENCY_MESSAGE =
+  "Cannot modify task dependencies in an archived project.";
+export const MOVE_TASK_WITH_DEPENDENCIES_MESSAGE =
+  "Cannot move a task with dependencies to a different project.";
+
+export type AddTaskDependencyInput = {
+  projectId: ObjectId;
+  taskId: ObjectId;
+  prerequisiteTaskId: ObjectId;
+};
+
+export type RemoveTaskDependencyInput = {
+  projectId: ObjectId;
+  taskId: ObjectId;
+  prerequisiteTaskId: ObjectId;
+};
+
+export type TaskDependencyItem = {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  taskId: string;
+  prerequisiteTaskId: string;
+  prerequisiteTitle: string;
+  prerequisiteStatus: TaskStatus;
+  prerequisiteParentTaskId: string | null;
+  /**
+   * Dynamically derived from the prerequisite task's live status: `true` when
+   * `prerequisiteStatus !== "done"`, `false` when `prerequisiteStatus === "done"`.
+   */
+  isBlocking: boolean;
+  createdBy: UserId;
+  createdAt: Date;
+};
+
+export type TaskBlockerSummary = {
+  taskId: string;
+  /**
+   * Dynamically derived from `dependencies`: `true` when one or more
+   * prerequisites are not yet `done`. Never stored as a manual task status.
+   */
+  isBlocked: boolean;
+  blockerCount: number;
+  dependencyCount: number;
+  dependencies: TaskDependencyItem[];
+  blockers: TaskDependencyItem[];
+};
+
+/**
+ * Checks whether `targetHex` is reachable from `startHex` in the directed
+ * dependency graph where each edge `{ taskId, prerequisiteTaskId }` points from
+ * a dependent task (`taskId`) to one of its prerequisites (`prerequisiteTaskId`).
+ * If `taskId` is reachable from `prerequisiteTaskId`, adding the edge
+ * `taskId -> prerequisiteTaskId` would close a cycle.
+ */
+function hasDependencyPath(
+  edges: ReadonlyArray<Pick<TaskDependencyDoc, "taskId" | "prerequisiteTaskId">>,
+  startHex: string,
+  targetHex: string,
+): boolean {
+  if (startHex === targetHex) {
+    return true;
+  }
+
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges) {
+    const from = edge.taskId.toHexString();
+    const to = edge.prerequisiteTaskId.toHexString();
+    const existing = adjacency.get(from);
+    if (existing) {
+      existing.push(to);
+    } else {
+      adjacency.set(from, [to]);
+    }
+  }
+
+  const visited = new Set<string>([startHex]);
+  const queue: string[] = [startHex];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const neighbors = adjacency.get(current);
+    if (!neighbors) {
+      continue;
+    }
+    for (const next of neighbors) {
+      if (next === targetHex) {
+        return true;
+      }
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Adds a directed dependency so `input.taskId` depends on `input.prerequisiteTaskId`
+ * within the same organization and active project. Restricted to organization
+ * `admin` and `manager` roles.
+ *
+ * Enforces:
+ * - Self-dependency rejection (`taskId` cannot equal `prerequisiteTaskId`)
+ * - Same-organization and same-project membership for both tasks
+ * - Archived-project restriction
+ * - Duplicate dependency prevention
+ * - Direct and transitive cycle prevention (`A -> B -> A`, `A -> B -> C -> A`, etc.),
+ *   serialized per project inside a MongoDB transaction so concurrent requests
+ *   cannot introduce cycles via write skew.
+ * - Never modifies any task's workflow status.
+ */
+export async function addTaskDependency(
+  organizationId: ObjectId,
+  input: AddTaskDependencyInput,
+  requestHeaders?: Headers,
+): Promise<TaskDependencyDoc> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError(
+      "Task dependency input must be a plain object.",
+    );
+  }
+
+  const allowedKeys: ReadonlySet<string> = new Set([
+    "projectId",
+    "taskId",
+    "prerequisiteTaskId",
+  ]);
+  for (const key of Object.keys(input)) {
+    if (!allowedKeys.has(key)) {
+      throw new TenantValidationError(
+        `Unexpected field "${key}". Only "projectId", "taskId", and "prerequisiteTaskId" are allowed.`,
+      );
+    }
+  }
+
+  const orgId = membership.organizationId;
+  const actingUserId = membership.userId;
+  const projectId = requireObjectId(input.projectId, "projectId");
+  const taskId = requireObjectId(input.taskId, "taskId");
+  const prerequisiteTaskId = requireObjectId(
+    input.prerequisiteTaskId,
+    "prerequisiteTaskId",
+  );
+
+  if (taskId.equals(prerequisiteTaskId)) {
+    throw new TenantValidationError(SELF_TASK_DEPENDENCY_MESSAGE);
+  }
+
+  const project = await requireProjectInOrg(membership, projectId);
+  if (project.status === "archived") {
+    throw new TenantValidationError(ARCHIVED_PROJECT_DEPENDENCY_MESSAGE);
+  }
+
+  const dependentTask = await requireTaskInProjectAndOrg(
+    membership,
+    project._id,
+    taskId,
+  );
+  const prereqTask = await requireTaskInProjectAndOrg(
+    membership,
+    project._id,
+    prerequisiteTaskId,
+  );
+
+  const { memberships, projects, tasks, taskDependencies, activities } =
+    await getCollections();
+
+  const targetHex = taskId.toHexString();
+  const startHex = prerequisiteTaskId.toHexString();
+
+  const buildDepAddedActivity = (depDoc: TaskDependencyDoc): ActivityDoc =>
+    buildActivityDoc({
+      organizationId: orgId,
+      projectId: project._id,
+      taskId,
+      actorId: actingUserId,
+      eventType: "dependency.added",
+      targetType: "dependency",
+      targetId: depDoc._id,
+      summary: `Added prerequisite "${prereqTask.title}" to "${dependentTask.title}"`,
+      changes: [
+        {
+          field: "prerequisiteTaskId",
+          before: null,
+          after: prerequisiteTaskId.toHexString(),
+        },
+        {
+          field: "prerequisiteTitle",
+          before: null,
+          after: prereqTask.title,
+        },
+      ],
+      metadata: {
+        taskTitle: dependentTask.title,
+        prerequisiteTaskId: prerequisiteTaskId.toHexString(),
+        prerequisiteTitle: prereqTask.title,
+        parentTaskId: dependentTask.parentTaskId
+          ? dependentTask.parentTaskId.toHexString()
+          : null,
+      },
+      createdAt: depDoc.createdAt,
+    });
+
+  try {
+    return await runInTransactionOrFallback<TaskDependencyDoc>(
+      async (session) => {
+        const currentActor = await memberships.findOne(
+          {
+            organizationId: orgId,
+            userId: actingUserId,
+            role: { $in: [...MANAGER_ROLES] },
+          },
+          { session },
+        );
+        if (!currentActor) {
+          throw new TenantAccessError(
+            "Only organization admins and managers can manage task dependencies.",
+          );
+        }
+
+        const now = new Date();
+        // Acquire a write lock on the parent project document inside the
+        // transaction so concurrent dependency additions in the same project
+        // serialize and cannot introduce a cycle through snapshot write skew.
+        const lockedProject = await projects.findOneAndUpdate(
+          { _id: project._id, organizationId: orgId },
+          { $set: { updatedAt: now } },
+          { returnDocument: "after", session },
+        );
+        if (!lockedProject) {
+          throw new TenantValidationError(
+            "Referenced project does not belong to this organization.",
+          );
+        }
+        if (lockedProject.status === "archived") {
+          throw new TenantValidationError(ARCHIVED_PROJECT_DEPENDENCY_MESSAGE);
+        }
+
+        const tasksInProject = await tasks
+          .find(
+            {
+              _id: { $in: [taskId, prerequisiteTaskId] },
+              organizationId: orgId,
+              projectId: project._id,
+            },
+            { projection: { _id: 1 }, session },
+          )
+          .toArray();
+        if (tasksInProject.length !== 2) {
+          throw new TenantValidationError(
+            "Both tasks must belong to the specified organization and project.",
+          );
+        }
+
+        const existingEdge = await taskDependencies.findOne(
+          {
+            organizationId: orgId,
+            projectId: project._id,
+            taskId,
+            prerequisiteTaskId,
+          },
+          { projection: { _id: 1 }, session },
+        );
+        if (existingEdge) {
+          throw new TenantValidationError(DUPLICATE_TASK_DEPENDENCY_MESSAGE);
+        }
+
+        const projectEdges = await taskDependencies
+          .find(
+            { organizationId: orgId, projectId: project._id },
+            { projection: { taskId: 1, prerequisiteTaskId: 1 }, session },
+          )
+          .toArray();
+
+        if (hasDependencyPath(projectEdges, startHex, targetHex)) {
+          throw new TenantValidationError(CIRCULAR_TASK_DEPENDENCY_MESSAGE);
+        }
+
+        const doc: TaskDependencyDoc = {
+          _id: new ObjectId(),
+          organizationId: orgId,
+          projectId: project._id,
+          taskId,
+          prerequisiteTaskId,
+          createdBy: actingUserId,
+          createdAt: now,
+        };
+
+        await taskDependencies.insertOne(doc, { session });
+        await activities.insertOne(buildDepAddedActivity(doc), { session });
+        return doc;
+      },
+      async () => {
+        const existingEdge = await taskDependencies.findOne(
+          {
+            organizationId: orgId,
+            projectId: project._id,
+            taskId,
+            prerequisiteTaskId,
+          },
+          { projection: { _id: 1 } },
+        );
+        if (existingEdge) {
+          throw new TenantValidationError(DUPLICATE_TASK_DEPENDENCY_MESSAGE);
+        }
+
+        const projectEdgesBefore = await taskDependencies
+          .find(
+            { organizationId: orgId, projectId: project._id },
+            { projection: { taskId: 1, prerequisiteTaskId: 1 } },
+          )
+          .toArray();
+
+        if (hasDependencyPath(projectEdgesBefore, startHex, targetHex)) {
+          throw new TenantValidationError(CIRCULAR_TASK_DEPENDENCY_MESSAGE);
+        }
+
+        const doc: TaskDependencyDoc = {
+          _id: new ObjectId(),
+          organizationId: orgId,
+          projectId: project._id,
+          taskId,
+          prerequisiteTaskId,
+          createdBy: actingUserId,
+          createdAt: new Date(),
+        };
+
+        await taskDependencies.insertOne(doc);
+
+        const projectEdgesAfter = await taskDependencies
+          .find(
+            {
+              organizationId: orgId,
+              projectId: project._id,
+              _id: { $ne: doc._id },
+            },
+            { projection: { taskId: 1, prerequisiteTaskId: 1 } },
+          )
+          .toArray();
+
+        if (hasDependencyPath(projectEdgesAfter, startHex, targetHex)) {
+          await taskDependencies.deleteOne({
+            _id: doc._id,
+            organizationId: orgId,
+          });
+          throw new TenantValidationError(CIRCULAR_TASK_DEPENDENCY_MESSAGE);
+        }
+
+        await activities.insertOne(buildDepAddedActivity(doc));
+        return doc;
+      },
+    );
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new TenantValidationError(DUPLICATE_TASK_DEPENDENCY_MESSAGE);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Removes a dependency edge `(taskId -> prerequisiteTaskId)` within the same
+ * organization and active project. Restricted to organization `admin` and
+ * `manager` roles. Never modifies any task's workflow status.
+ * Returns the removed `TaskDependencyDoc`, or `null` if no matching dependency
+ * edge exists for that task.
+ */
+export async function removeTaskDependency(
+  organizationId: ObjectId,
+  input: RemoveTaskDependencyInput,
+  requestHeaders?: Headers,
+): Promise<TaskDependencyDoc | null> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError(
+      "Task dependency removal input must be a plain object.",
+    );
+  }
+
+  const allowedKeys: ReadonlySet<string> = new Set([
+    "projectId",
+    "taskId",
+    "prerequisiteTaskId",
+  ]);
+  for (const key of Object.keys(input)) {
+    if (!allowedKeys.has(key)) {
+      throw new TenantValidationError(
+        `Unexpected field "${key}". Only "projectId", "taskId", and "prerequisiteTaskId" are allowed.`,
+      );
+    }
+  }
+
+  const orgId = membership.organizationId;
+  const projectId = requireObjectId(input.projectId, "projectId");
+  const taskId = requireObjectId(input.taskId, "taskId");
+  const prerequisiteTaskId = requireObjectId(
+    input.prerequisiteTaskId,
+    "prerequisiteTaskId",
+  );
+
+  const project = await requireProjectInOrg(membership, projectId);
+  if (project.status === "archived") {
+    throw new TenantValidationError(ARCHIVED_PROJECT_DEPENDENCY_MESSAGE);
+  }
+
+  const dependentTask = await requireTaskInProjectAndOrg(
+    membership,
+    project._id,
+    taskId,
+  );
+
+  const { tasks, taskDependencies, activities } = await getCollections();
+  const prereqTask = await tasks.findOne({
+    _id: prerequisiteTaskId,
+    organizationId: orgId,
+    projectId: project._id,
+  });
+  const prereqTitle = prereqTask?.title ?? prerequisiteTaskId.toHexString();
+
+  const buildDepRemovedActivity = (deletedDoc: TaskDependencyDoc): ActivityDoc =>
+    buildActivityDoc({
+      organizationId: orgId,
+      projectId: project._id,
+      taskId,
+      actorId: membership.userId,
+      eventType: "dependency.removed",
+      targetType: "dependency",
+      targetId: deletedDoc._id,
+      summary: `Removed prerequisite "${prereqTitle}" from "${dependentTask.title}"`,
+      changes: [
+        {
+          field: "prerequisiteTaskId",
+          before: prerequisiteTaskId.toHexString(),
+          after: null,
+        },
+        {
+          field: "prerequisiteTitle",
+          before: prereqTitle,
+          after: null,
+        },
+      ],
+      metadata: {
+        taskTitle: dependentTask.title,
+        prerequisiteTaskId: prerequisiteTaskId.toHexString(),
+        prerequisiteTitle: prereqTitle,
+        parentTaskId: dependentTask.parentTaskId
+          ? dependentTask.parentTaskId.toHexString()
+          : null,
+      },
+      createdAt: new Date(),
+    });
+
+  return runInTransactionOrFallback<TaskDependencyDoc | null>(
+    async (session) => {
+      const deleted = await taskDependencies.findOneAndDelete(
+        {
+          organizationId: orgId,
+          projectId: project._id,
+          taskId,
+          prerequisiteTaskId,
+        },
+        { session },
+      );
+      if (deleted) {
+        await activities.insertOne(buildDepRemovedActivity(deleted), {
+          session,
+        });
+      }
+      return deleted;
+    },
+    async () => {
+      const deleted = await taskDependencies.findOneAndDelete({
+        organizationId: orgId,
+        projectId: project._id,
+        taskId,
+        prerequisiteTaskId,
+      });
+      if (deleted) {
+        await activities.insertOne(buildDepRemovedActivity(deleted));
+      }
+      return deleted;
+    },
+  );
+}
+
+function buildBlockerSummaryForTask(
+  taskIdHex: string,
+  edges: readonly TaskDependencyDoc[],
+  prereqById: ReadonlyMap<string, TaskDoc>,
+): TaskBlockerSummary {
+  const dependencies: TaskDependencyItem[] = [];
+  for (const edge of edges) {
+    const prereqHex = edge.prerequisiteTaskId.toHexString();
+    const prereqTask = prereqById.get(prereqHex);
+    if (!prereqTask) {
+      continue;
+    }
+    const isBlocking = prereqTask.status !== "done";
+    dependencies.push({
+      id: edge._id.toHexString(),
+      organizationId: edge.organizationId.toHexString(),
+      projectId: edge.projectId.toHexString(),
+      taskId: edge.taskId.toHexString(),
+      prerequisiteTaskId: prereqHex,
+      prerequisiteTitle: prereqTask.title,
+      prerequisiteStatus: prereqTask.status,
+      prerequisiteParentTaskId: prereqTask.parentTaskId
+        ? prereqTask.parentTaskId.toHexString()
+        : null,
+      isBlocking,
+      createdBy: edge.createdBy,
+      createdAt: edge.createdAt,
+    });
+  }
+
+  const blockers = dependencies.filter((item) => item.isBlocking);
+  return {
+    taskId: taskIdHex,
+    isBlocked: blockers.length > 0,
+    blockerCount: blockers.length,
+    dependencyCount: dependencies.length,
+    dependencies,
+    blockers,
+  };
+}
+
+/**
+ * Retrieves the current dependency and derived blocker summary for a single
+ * task within `projectId` and `organizationId`. Accessible to any authenticated
+ * member of the organization (`admin`, `manager`, or `member`).
+ */
+export async function getTaskDependencySummary(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskId: ObjectId,
+  requestHeaders?: Headers,
+): Promise<TaskBlockerSummary> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const orgId = membership.organizationId;
+  await requireProjectInOrg(membership, projectId);
+  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+
+  const { tasks, taskDependencies } = await getCollections();
+  const edges = await taskDependencies
+    .find({
+      organizationId: orgId,
+      projectId,
+      taskId,
+    })
+    .sort({ createdAt: 1, _id: 1 })
+    .toArray();
+
+  if (edges.length === 0) {
+    return {
+      taskId: taskId.toHexString(),
+      isBlocked: false,
+      blockerCount: 0,
+      dependencyCount: 0,
+      dependencies: [],
+      blockers: [],
+    };
+  }
+
+  const prereqIds = edges.map((edge) => edge.prerequisiteTaskId);
+  const prereqDocs = await tasks
+    .find({
+      _id: { $in: prereqIds },
+      organizationId: orgId,
+      projectId,
+    })
+    .toArray();
+
+  const prereqById = new Map<string, TaskDoc>();
+  for (const doc of prereqDocs) {
+    prereqById.set(doc._id.toHexString(), normalizeTaskDoc(doc));
+  }
+
+  return buildBlockerSummaryForTask(taskId.toHexString(), edges, prereqById);
+}
+
+/**
+ * Lists all prerequisite dependencies (and their live completion/blocking status)
+ * for `taskId` within `projectId` and `organizationId`.
+ */
+export async function listTaskDependencies(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskId: ObjectId,
+  requestHeaders?: Headers,
+): Promise<TaskDependencyItem[]> {
+  const summary = await getTaskDependencySummary(
+    organizationId,
+    projectId,
+    taskId,
+    requestHeaders,
+  );
+  return summary.dependencies;
+}
+
+/**
+ * Computes derived blocker and dependency summaries for a batch of tasks in
+ * `projectId` and `organizationId` using two indexed queries.
+ */
+export async function getTasksBlockerSummaries(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskIds: readonly ObjectId[],
+  requestHeaders?: Headers,
+): Promise<Map<string, TaskBlockerSummary>> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const orgId = membership.organizationId;
+  await requireProjectInOrg(membership, projectId);
+
+  const result = new Map<string, TaskBlockerSummary>();
+  if (taskIds.length === 0) {
+    return result;
+  }
+
+  const validatedTaskIds = taskIds.map((id) => requireObjectId(id, "taskId"));
+  for (const id of validatedTaskIds) {
+    const hex = id.toHexString();
+    result.set(hex, {
+      taskId: hex,
+      isBlocked: false,
+      blockerCount: 0,
+      dependencyCount: 0,
+      dependencies: [],
+      blockers: [],
+    });
+  }
+
+  const { tasks, taskDependencies } = await getCollections();
+  const edges = await taskDependencies
+    .find({
+      organizationId: orgId,
+      projectId,
+      taskId: { $in: validatedTaskIds },
+    })
+    .sort({ createdAt: 1, _id: 1 })
+    .toArray();
+
+  if (edges.length === 0) {
+    return result;
+  }
+
+  const prereqIdMap = new Map<string, ObjectId>();
+  const edgesByTaskHex = new Map<string, TaskDependencyDoc[]>();
+  for (const edge of edges) {
+    const prereqHex = edge.prerequisiteTaskId.toHexString();
+    if (!prereqIdMap.has(prereqHex)) {
+      prereqIdMap.set(prereqHex, edge.prerequisiteTaskId);
+    }
+    const taskHex = edge.taskId.toHexString();
+    const list = edgesByTaskHex.get(taskHex);
+    if (list) {
+      list.push(edge);
+    } else {
+      edgesByTaskHex.set(taskHex, [edge]);
+    }
+  }
+
+  const prereqDocs = await tasks
+    .find({
+      _id: { $in: Array.from(prereqIdMap.values()) },
+      organizationId: orgId,
+      projectId,
+    })
+    .toArray();
+
+  const prereqById = new Map<string, TaskDoc>();
+  for (const doc of prereqDocs) {
+    prereqById.set(doc._id.toHexString(), normalizeTaskDoc(doc));
+  }
+
+  for (const [taskHex, taskEdges] of edgesByTaskHex.entries()) {
+    result.set(
+      taskHex,
+      buildBlockerSummaryForTask(taskHex, taskEdges, prereqById),
+    );
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped task deliverable workflow status derivation
+// ---------------------------------------------------------------------------
+
+export type TaskDeliverableStatusItem = {
+  _id: ObjectId;
+  approvalRequired: boolean;
+};
+
+/**
+ * Computes derived deliverable workflow statuses for a batch of tasks within
+ * `projectId` and `organizationId` using at most two indexed aggregation queries.
+ *
+ * Status derivation rules:
+ * 1. `needs_submission`: `approvalRequired === true` and no deliverable exists.
+ * 2. `in_review`: a current deliverable exists but has no review.
+ * 3. `changes_requested`: the latest review on the current deliverable has decision `changes_requested`.
+ * 4. `approved`: the latest review on the current deliverable has decision `approved`.
+ * 5. `null`: approval is not required and no deliverable exists.
+ *
+ * Superseded deliverables and their historical reviews never determine the current status.
+ */
+export async function getTasksDeliverableStatuses(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskList: readonly TaskDeliverableStatusItem[],
+  requestHeaders?: Headers,
+): Promise<Map<string, TaskDeliverableStatus | null>> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const orgId = membership.organizationId;
+  await requireProjectInOrg(membership, projectId);
+
+  const result = new Map<string, TaskDeliverableStatus | null>();
+  if (taskList.length === 0) {
+    return result;
+  }
+
+  const taskIds: ObjectId[] = [];
+  const approvalRequiredByTaskId = new Map<string, boolean>();
+
+  for (const item of taskList) {
+    const id = requireObjectId(item._id, "taskId");
+    const hex = id.toHexString();
+    taskIds.push(id);
+    approvalRequiredByTaskId.set(hex, item.approvalRequired === true);
+    // Default when no deliverable exists
+    result.set(hex, item.approvalRequired === true ? "needs_submission" : null);
+  }
+
+  const { deliverables, reviews } = await getCollections();
+
+  // 1. Find the latest deliverable for each task (sorted by createdAt DESC, _id DESC)
+  const latestDeliverables = await deliverables
+    .aggregate<{
+      _id: ObjectId; // taskId
+      deliverableId: ObjectId;
+      createdAt: Date;
+    }>([
+      {
+        $match: {
+          organizationId: orgId,
+          projectId,
+          taskId: { $in: taskIds },
+        },
+      },
+      {
+        $sort: { createdAt: -1, _id: -1 },
+      },
+      {
+        $group: {
+          _id: "$taskId",
+          deliverableId: { $first: "$_id" },
+          createdAt: { $first: "$createdAt" },
+        },
+      },
+    ])
+    .toArray();
+
+  if (latestDeliverables.length === 0) {
+    return result;
+  }
+
+  const latestDeliverableIds = latestDeliverables.map((d) => d.deliverableId);
+  const deliverableToTaskHex = new Map<string, string>();
+  for (const d of latestDeliverables) {
+    const taskHex = d._id.toHexString();
+    deliverableToTaskHex.set(d.deliverableId.toHexString(), taskHex);
+    // Deliverable exists; initial state before reviews is "in_review"
+    result.set(taskHex, "in_review");
+  }
+
+  // 2. Find the latest review for each of those latest deliverables
+  const latestReviews = await reviews
+    .aggregate<{
+      _id: ObjectId; // deliverableId
+      decision: ReviewDecision;
+      createdAt: Date;
+    }>([
+      {
+        $match: {
+          organizationId: orgId,
+          taskId: { $in: taskIds },
+          deliverableId: { $in: latestDeliverableIds },
+        },
+      },
+      {
+        $sort: { createdAt: -1, _id: -1 },
+      },
+      {
+        $group: {
+          _id: "$deliverableId",
+          decision: { $first: "$decision" },
+          createdAt: { $first: "$createdAt" },
+        },
+      },
+    ])
+    .toArray();
+
+  for (const rev of latestReviews) {
+    const taskHex = deliverableToTaskHex.get(rev._id.toHexString());
+    if (taskHex) {
+      if (rev.decision === "changes_requested") {
+        result.set(taskHex, "changes_requested");
+      } else if (rev.decision === "approved") {
+        result.set(taskHex, "approved");
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Computes the deliverable workflow status for a single task.
+ */
+export async function getTaskDeliverableStatus(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskId: ObjectId,
+  approvalRequired: boolean,
+  requestHeaders?: Headers,
+): Promise<TaskDeliverableStatus | null> {
+  const map = await getTasksDeliverableStatuses(
+    organizationId,
+    projectId,
+    [{ _id: taskId, approvalRequired }],
+    requestHeaders,
+  );
+  return map.get(taskId.toHexString()) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Deliverable workflow status filter validation and utilities
+// ---------------------------------------------------------------------------
+
+export const DELIVERABLE_STATUS_FILTER_VALUES = [
+  "all",
+  "needs_submission",
+  "in_review",
+  "changes_requested",
+  "approved",
+] as const;
+
+export type DeliverableStatusFilter =
+  (typeof DELIVERABLE_STATUS_FILTER_VALUES)[number];
+
+export function validateDeliverableStatusFilter(
+  value: unknown,
+): DeliverableStatusFilter {
+  if (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    value === "all"
+  ) {
+    return "all";
+  }
+  if (
+    typeof value !== "string" ||
+    !DELIVERABLE_STATUS_FILTER_VALUES.includes(value as DeliverableStatusFilter)
+  ) {
+    throw new TenantValidationError(
+      `Invalid deliverableStatus filter "${String(value)}". Supported values: all, needs_submission, in_review, changes_requested, approved.`,
+    );
+  }
+  return value as DeliverableStatusFilter;
+}
+
+export function filterTasksByDeliverableStatus<T extends { _id: ObjectId }>(
+  tasks: readonly T[],
+  deliverableStatuses: ReadonlyMap<string, TaskDeliverableStatus | null>,
+  filter: DeliverableStatusFilter,
+): T[] {
+  if (filter === "all") {
+    return [...tasks];
+  }
+  return tasks.filter(
+    (task) => deliverableStatuses.get(task._id.toHexString()) === filter,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped activity history & audit trail retrieval
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_ACTIVITY_PAGE_LIMIT = 25;
+export const MAX_ACTIVITY_PAGE_LIMIT = 100;
+
+export type ActivityActor = {
+  userId: UserId;
+  name: string | null;
+  email: string | null;
+  role: MembershipRole | null;
+};
+
+export type ActivityFieldChangeItem = {
+  field: string;
+  before: ActivityFieldValue;
+  after: ActivityFieldValue;
+  beforeDisplay: string | null;
+  afterDisplay: string | null;
+};
+
+export type ActivityItem = {
+  id: string;
+  organizationId: string;
+  projectId: string | null;
+  taskId: string | null;
+  actorId: UserId;
+  actor: ActivityActor;
+  eventType: ActivityEventType;
+  targetType: ActivityTargetType;
+  targetId: string;
+  summary: string;
+  changes: ActivityFieldChangeItem[];
+  metadata: Record<string, ActivityFieldValue> | null;
+  createdAt: Date;
+};
+
+export type ActivityPage = {
+  activities: ActivityItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type ListActivityOptions = {
+  limit?: unknown;
+  cursor?: unknown;
+};
+
+export function validateActivityLimit(rawLimit: unknown): number {
+  if (rawLimit === undefined || rawLimit === null || rawLimit === "") {
+    return DEFAULT_ACTIVITY_PAGE_LIMIT;
+  }
+  const num =
+    typeof rawLimit === "number"
+      ? rawLimit
+      : typeof rawLimit === "string" && /^\d+$/.test(rawLimit.trim())
+        ? Number.parseInt(rawLimit.trim(), 10)
+        : Number.NaN;
+  if (
+    !Number.isInteger(num) ||
+    num < 1 ||
+    num > MAX_ACTIVITY_PAGE_LIMIT
+  ) {
+    throw new TenantValidationError(
+      `Invalid limit: must be an integer between 1 and ${MAX_ACTIVITY_PAGE_LIMIT}.`,
+    );
+  }
+  return num;
+}
+
+export function encodeActivityCursor(
+  doc: Pick<ActivityDoc, "_id" | "createdAt">,
+): string {
+  return `${doc.createdAt.toISOString()}_${doc._id.toHexString()}`;
+}
+
+export function parseActivityCursor(
+  rawCursor: unknown,
+): { createdAt: Date; id: ObjectId } | null {
+  if (rawCursor === undefined || rawCursor === null || rawCursor === "") {
+    return null;
+  }
+  if (typeof rawCursor !== "string") {
+    throw new TenantValidationError("Invalid pagination cursor.");
+  }
+  const trimmed = rawCursor.trim();
+  const separatorIndex = trimmed.lastIndexOf("_");
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    throw new TenantValidationError("Invalid pagination cursor.");
+  }
+  const isoPart = trimmed.slice(0, separatorIndex);
+  const idPart = trimmed.slice(separatorIndex + 1);
+  const createdAt = new Date(isoPart);
+  const id = parseObjectId(idPart);
+  if (Number.isNaN(createdAt.getTime()) || !id) {
+    throw new TenantValidationError("Invalid pagination cursor.");
+  }
+  return { createdAt, id };
+}
+
+function formatActivityFieldValue(
+  field: string,
+  value: ActivityFieldValue,
+  profilesById: ReadonlyMap<UserId, { name: string | null; email: string | null }>,
+): string | null {
+  if (field === "assigneeId") {
+    if (value === null || value === "") {
+      return "Unassigned";
+    }
+    const userId = String(value);
+    const profile = profilesById.get(userId);
+    if (profile?.name) {
+      return `${profile.name} (${userId})`;
+    }
+    if (profile?.email) {
+      return `${profile.email} (${userId})`;
+    }
+    return userId;
+  }
+
+  if (field === "deadline") {
+    if (value === null || value === "") {
+      return "No deadline";
+    }
+    return String(value).slice(0, 10);
+  }
+
+  if (field === "approvalRequired") {
+    if (value === null) return null;
+    return value === true ? "Required" : "Not required";
+  }
+
+  if (field === "status") {
+    if (value === null) return null;
+    if (typeof value === "string" && value in ACTIVITY_STATUS_LABELS) {
+      return ACTIVITY_STATUS_LABELS[value as TaskStatus];
+    }
+    if (value === "active") return "Active";
+    if (value === "archived") return "Archived";
+    return String(value);
+  }
+
+  if (field === "priority") {
+    if (value === null) return null;
+    if (typeof value === "string" && value in ACTIVITY_PRIORITY_LABELS) {
+      return ACTIVITY_PRIORITY_LABELS[value as TaskPriority];
+    }
+    return String(value);
+  }
+
+  if (field === "decision") {
+    if (value === null) return null;
+    if (typeof value === "string" && value in ACTIVITY_REVIEW_LABELS) {
+      return ACTIVITY_REVIEW_LABELS[value as ReviewDecision];
+    }
+    return String(value);
+  }
+
+  if (value === null) {
+    return "None";
+  }
+  return String(value);
+}
+
+async function hydrateActivityItems(
+  organizationId: ObjectId,
+  docs: readonly ActivityDoc[],
+): Promise<ActivityItem[]> {
+  if (docs.length === 0) {
+    return [];
+  }
+
+  const userIdSet = new Set<UserId>();
+  for (const doc of docs) {
+    userIdSet.add(doc.actorId);
+    for (const change of doc.changes ?? []) {
+      if (change.field === "assigneeId") {
+        if (typeof change.before === "string" && change.before.trim() !== "") {
+          userIdSet.add(change.before.trim());
+        }
+        if (typeof change.after === "string" && change.after.trim() !== "") {
+          userIdSet.add(change.after.trim());
+        }
+      }
+    }
+  }
+
+  const allUserIds = Array.from(userIdSet);
+  const { memberships } = await getCollections();
+  const [profilesById, memberDocs] = await Promise.all([
+    lookupRegisteredUsersByIds(allUserIds),
+    memberships
+      .find(
+        { organizationId, userId: { $in: allUserIds } },
+        { projection: { _id: 0, userId: 1, role: 1 } },
+      )
+      .toArray(),
+  ]);
+
+  const roleByUserId = new Map<UserId, MembershipRole>();
+  for (const m of memberDocs) {
+    roleByUserId.set(m.userId, m.role);
+  }
+
+  return docs.map((doc) => {
+    const actorProfile = profilesById.get(doc.actorId);
+    const actorRole = roleByUserId.get(doc.actorId) ?? null;
+    const changes: ActivityFieldChangeItem[] = (doc.changes ?? []).map(
+      (change) => ({
+        field: change.field,
+        before: change.before,
+        after: change.after,
+        beforeDisplay: formatActivityFieldValue(
+          change.field,
+          change.before,
+          profilesById,
+        ),
+        afterDisplay: formatActivityFieldValue(
+          change.field,
+          change.after,
+          profilesById,
+        ),
+      }),
+    );
+
+    return {
+      id: doc._id.toHexString(),
+      organizationId: doc.organizationId.toHexString(),
+      projectId: doc.projectId ? doc.projectId.toHexString() : null,
+      taskId: doc.taskId ? doc.taskId.toHexString() : null,
+      actorId: doc.actorId,
+      actor: {
+        userId: doc.actorId,
+        name: actorProfile?.name ?? null,
+        email: actorProfile?.email ?? null,
+        role: actorRole,
+      },
+      eventType: doc.eventType,
+      targetType: doc.targetType,
+      targetId: doc.targetId.toHexString(),
+      summary: doc.summary,
+      changes,
+      metadata: doc.metadata ?? null,
+      createdAt: doc.createdAt,
+    };
+  });
+}
+
+async function queryPaginatedActivities(
+  organizationId: ObjectId,
+  baseFilter: Record<string, unknown>,
+  options?: ListActivityOptions,
+): Promise<ActivityPage> {
+  const limit = validateActivityLimit(options?.limit);
+  const cursor = parseActivityCursor(options?.cursor);
+
+  const filter: Record<string, unknown> = {
+    ...baseFilter,
+    organizationId,
+  };
+
+  if (cursor) {
+    filter.$or = [
+      { createdAt: { $lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ];
+  }
+
+  const { activities } = await getCollections();
+  const docs = await activities
+    .find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(limit + 1)
+    .toArray();
+
+  const hasMore = docs.length > limit;
+  const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+  const nextCursor =
+    hasMore && pageDocs.length > 0
+      ? encodeActivityCursor(pageDocs[pageDocs.length - 1])
+      : null;
+
+  const items = await hydrateActivityItems(organizationId, pageDocs);
+  return {
+    activities: items,
+    nextCursor,
+    hasMore,
+  };
+}
+
+/**
+ * Lists organization-wide activity in deterministic newest-first order with
+ * cursor pagination. Accessible to any authenticated member of `organizationId`.
+ */
+export async function listOrganizationActivity(
+  organizationId: ObjectId,
+  options?: ListActivityOptions,
+  requestHeaders?: Headers,
+): Promise<ActivityPage> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  return queryPaginatedActivities(membership.organizationId, {}, options);
+}
+
+/**
+ * Lists project-scoped activity (including all task, subtask, dependency,
+ * deliverable, and review events within the project) in deterministic
+ * newest-first order with cursor pagination. Preserves read access on archived
+ * projects.
+ */
+export async function listProjectActivity(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  options?: ListActivityOptions,
+  requestHeaders?: Headers,
+): Promise<ActivityPage> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+  return queryPaginatedActivities(
+    membership.organizationId,
+    { projectId: project._id },
+    options,
+  );
+}
+
+/**
+ * Lists task-scoped activity (including task/subtask updates, dependency
+ * mutations, deliverable submissions, and review decisions for that task) in
+ * deterministic newest-first order with cursor pagination. Preserves read access
+ * on archived projects.
+ */
+export async function listTaskActivity(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskId: ObjectId,
+  options?: ListActivityOptions,
+  requestHeaders?: Headers,
+): Promise<ActivityPage> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+  const task = await requireTaskInProjectAndOrg(membership, project._id, taskId);
+  return queryPaginatedActivities(
+    membership.organizationId,
+    { projectId: project._id, taskId: task._id },
+    options,
+  );
 }
