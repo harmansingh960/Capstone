@@ -4,7 +4,10 @@ import {
   COLLECTIONS,
   type ActivityDoc,
   type DeliverableDoc,
+  type MeetingActionItemDoc,
+  type MeetingDoc,
   type MembershipDoc,
+  type NotificationDoc,
   type OrganizationDoc,
   type ProjectDoc,
   type ReviewDoc,
@@ -15,7 +18,7 @@ import {
 /**
  * Low-level typed handles to the app-owned collections (never Better Auth's).
  * Prefer the tenant-scoped data-access functions in `@/lib/tenancy` for
- * project, task, dependency, deliverable, review, and activity operations so
+ * project, task, dependency, deliverable, review, activity, and meeting operations so
  * session auth, `organizationId` scoping, and cross-document invariants are
  * always enforced.
  */
@@ -32,5 +35,10 @@ export async function getCollections() {
     deliverables: db.collection<DeliverableDoc>(COLLECTIONS.deliverables),
     reviews: db.collection<ReviewDoc>(COLLECTIONS.reviews),
     activities: db.collection<ActivityDoc>(COLLECTIONS.activities),
+    meetings: db.collection<MeetingDoc>(COLLECTIONS.meetings),
+    meetingActionItems: db.collection<MeetingActionItemDoc>(
+      COLLECTIONS.meetingActionItems,
+    ),
+    notifications: db.collection<NotificationDoc>(COLLECTIONS.notifications),
   };
 }

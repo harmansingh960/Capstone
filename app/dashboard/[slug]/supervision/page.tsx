@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { getAuth } from "@/lib/auth";
 import { SignOutButton } from "../../sign-out-button";
+import { NotificationBell } from "../notification-bell";
 import {
   getOrganizationBySlug,
   getSupervisionReports,
@@ -101,6 +102,7 @@ async function SupervisionWorkspace({
               <span className="text-sm text-zinc-600 dark:text-zinc-400">
                 {session.user.email}
               </span>
+              <NotificationBell organizationSlug={organization.slug} />
               <SignOutButton />
             </div>
           </div>
@@ -172,6 +174,10 @@ async function SupervisionWorkspace({
       assignee: serializeTaskAssignee(item.assignee),
       deadline: item.deadline ? item.deadline.toISOString() : null,
       approvalRequired: item.approvalRequired,
+      sourceMeetingId: item.sourceMeetingId,
+      sourceMeetingTitle: item.sourceMeetingTitle,
+      sourceActionItemId: item.sourceActionItemId,
+      sourceActionItemTitle: item.sourceActionItemTitle,
       isBlocked: item.isBlocked,
       blockerCount: item.blockerCount,
       dependencyCount: item.dependencyCount,
@@ -261,6 +267,7 @@ async function SupervisionWorkspace({
             <span className="text-sm text-zinc-600 dark:text-zinc-400">
               {session.user.email}
             </span>
+            <NotificationBell organizationSlug={organization.slug} />
             <SignOutButton />
           </div>
         </div>

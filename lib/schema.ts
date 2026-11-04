@@ -38,6 +38,21 @@ export const TASK_DELIVERABLE_STATUSES = [
 ] as const;
 export type TaskDeliverableStatus = (typeof TASK_DELIVERABLE_STATUSES)[number];
 
+export const MEETING_STATUSES = [
+  "scheduled",
+  "completed",
+  "cancelled",
+] as const;
+export type MeetingStatus = (typeof MEETING_STATUSES)[number];
+
+export const ACTION_ITEM_STATUSES = [
+  "open",
+  "in_progress",
+  "completed",
+  "cancelled",
+] as const;
+export type ActionItemStatus = (typeof ACTION_ITEM_STATUSES)[number];
+
 export const ACTIVITY_TARGET_TYPES = [
   "project",
   "task",
@@ -45,6 +60,8 @@ export const ACTIVITY_TARGET_TYPES = [
   "dependency",
   "deliverable",
   "review",
+  "meeting",
+  "action_item",
 ] as const;
 export type ActivityTargetType = (typeof ACTIVITY_TARGET_TYPES)[number];
 
@@ -67,8 +84,46 @@ export const ACTIVITY_EVENT_TYPES = [
   "review.approved",
   "review.changes_requested",
   "review.decision_updated",
+  "meeting.created",
+  "meeting.updated",
+  "meeting.archived",
+  "meeting.unarchived",
+  "meeting.participant_added",
+  "meeting.participant_removed",
+  "meeting.notes_updated",
+  "meeting.decision_recorded",
+  "action_item.created",
+  "action_item.updated",
+  "action_item.status_changed",
+  "action_item.converted_to_task",
 ] as const;
 export type ActivityEventType = (typeof ACTIVITY_EVENT_TYPES)[number];
+
+// In-app notification categories (Phase 7). Notification *generation* is not
+// part of Phase 7 Batch 1; these values define the storage contract only.
+// Extending is additive: add a value here and re-run `npm run db:setup`.
+export const NOTIFICATION_TYPES = [
+  "task.assigned",
+  "task.updated",
+  "deliverable.submitted",
+  "review.decided",
+  "meeting.participant_added",
+  "action_item.assigned",
+  "deadline.reminder",
+  "general",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+/** Kinds of organization-owned records a notification may reference. */
+export const NOTIFICATION_ENTITY_TYPES = [
+  "project",
+  "task",
+  "deliverable",
+  "review",
+  "meeting",
+  "action_item",
+] as const;
+export type NotificationEntityType = (typeof NOTIFICATION_ENTITY_TYPES)[number];
 
 // Plural names keep app-owned collections visually separate from Better Auth's
 // singular ones, and avoid clashing with its organization plugin
@@ -82,6 +137,9 @@ export const COLLECTIONS = {
   deliverables: "deliverables",
   reviews: "reviews",
   activities: "activities",
+  meetings: "meetings",
+  meetingActionItems: "meeting_action_items",
+  notifications: "notifications",
 } as const;
 
 export const DEFAULT_MONGODB_DB = "orchestr";
@@ -167,6 +225,8 @@ export type TaskDoc = Timestamps & {
   createdBy: UserId;
   deadline: Date | null;
   approvalRequired: boolean;
+  sourceMeetingId?: ObjectId | null;
+  sourceActionItemId?: ObjectId | null;
 };
 
 /**
@@ -247,6 +307,87 @@ export type ActivityDoc = {
   changes: ActivityFieldChange[];
   metadata?: Record<string, ActivityFieldValue> | null;
   createdAt: Date;
+};
+
+export type MeetingDiscussionPointDoc = {
+  id: string;
+  content: string;
+  authorId: UserId;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type MeetingDecisionDoc = {
+  id: string;
+  title: string;
+  description?: string | null;
+  decidedBy: UserId;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/**
+ * Organization-scoped meeting record (Phase 6.1 & 6.2).
+ * `participantIds` references organization member `userId` strings; Better Auth
+ * user profiles are never duplicated here.
+ */
+export type MeetingDoc = Timestamps & {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  projectId: ObjectId | null;
+  title: string;
+  meetingDate: Date;
+  description?: string | null;
+  status: MeetingStatus;
+  participantIds: UserId[];
+  notes?: string | null;
+  discussionPoints: MeetingDiscussionPointDoc[];
+  decisions: MeetingDecisionDoc[];
+  createdBy: UserId;
+  archivedAt: Date | null;
+};
+
+/**
+ * Organization-scoped meeting action item record (Phase 6.3).
+ * Belongs to a specific `meetingId` within the same `organizationId`.
+ */
+export type MeetingActionItemDoc = Timestamps & {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  meetingId: ObjectId;
+  title: string;
+  description?: string | null;
+  ownerId: UserId | null;
+  targetDate: Date | null;
+  status: ActionItemStatus;
+  createdBy: UserId;
+  completedAt: Date | null;
+  linkedTaskId?: ObjectId | null;
+};
+
+/**
+ * Organization-scoped in-app notification for exactly one recipient (Phase 7).
+ * `recipientId` is a Better Auth user id; every read and write is scoped by
+ * both `organizationId` and `recipientId`, with the recipient always derived
+ * from the authenticated session on the read/mark-read paths.
+ * `url`, when present, is an internal app path (e.g. `/dashboard/acme/...`).
+ * `readAt` is `null` while unread and always present.
+ */
+export type NotificationDoc = {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  recipientId: UserId;
+  type: NotificationType;
+  title: string;
+  message: string;
+  url?: string | null;
+  entityType?: NotificationEntityType | null;
+  entityId?: ObjectId | null;
+  projectId?: ObjectId | null;
+  actorId?: UserId | null;
+  dedupeKey?: string | null;
+  createdAt: Date;
+  readAt: Date | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -362,6 +503,8 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
         createdBy: userId,
         deadline: { bsonType: ["date", "null"] },
         approvalRequired: { bsonType: "bool" },
+        sourceMeetingId: { bsonType: ["objectId", "null"] },
+        sourceActionItemId: { bsonType: ["objectId", "null"] },
         ...timestamps,
       },
     },
@@ -381,6 +524,19 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
       {
         key: { organizationId: 1, assigneeId: 1, status: 1, deadline: 1 },
         name: "org_assignee_status_deadline",
+      },
+      // At most one converted task per source meeting action item in an org.
+      {
+        key: { organizationId: 1, sourceActionItemId: 1 },
+        name: "org_source_action_item_unique",
+        unique: true,
+        partialFilterExpression: { sourceActionItemId: { $type: "objectId" } },
+      },
+      // Tasks converted from a given meeting within an org.
+      {
+        key: { organizationId: 1, sourceMeetingId: 1 },
+        name: "org_source_meeting",
+        partialFilterExpression: { sourceMeetingId: { $type: "objectId" } },
       },
     ],
   },
@@ -553,6 +709,221 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
           _id: -1,
         },
         name: "org_project_task_created_id",
+      },
+    ],
+  },
+  {
+    name: COLLECTIONS.meetings,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "projectId",
+        "title",
+        "meetingDate",
+        "status",
+        "participantIds",
+        "discussionPoints",
+        "decisions",
+        "createdBy",
+        "archivedAt",
+        "createdAt",
+        "updatedAt",
+      ],
+      properties: {
+        organizationId: objectId,
+        projectId: { bsonType: ["objectId", "null"] },
+        title: { bsonType: "string", minLength: 1, maxLength: 200 },
+        meetingDate: date,
+        description: { bsonType: ["string", "null"], maxLength: 5000 },
+        status: { enum: [...MEETING_STATUSES] },
+        participantIds: {
+          bsonType: "array",
+          items: userId,
+        },
+        notes: { bsonType: ["string", "null"], maxLength: 20000 },
+        discussionPoints: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["id", "content", "authorId", "createdAt", "updatedAt"],
+            properties: {
+              id: { bsonType: "string", minLength: 1, maxLength: 64 },
+              content: { bsonType: "string", minLength: 1, maxLength: 5000 },
+              authorId: userId,
+              createdAt: date,
+              updatedAt: date,
+            },
+          },
+        },
+        decisions: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["id", "title", "decidedBy", "createdAt", "updatedAt"],
+            properties: {
+              id: { bsonType: "string", minLength: 1, maxLength: 64 },
+              title: { bsonType: "string", minLength: 1, maxLength: 300 },
+              description: { bsonType: ["string", "null"], maxLength: 5000 },
+              decidedBy: userId,
+              createdAt: date,
+              updatedAt: date,
+            },
+          },
+        },
+        createdBy: userId,
+        archivedAt: { bsonType: ["date", "null"] },
+        ...timestamps,
+      },
+    },
+    indexes: [
+      // Organization and meeting date (newest first with deterministic tie-breaker).
+      {
+        key: { organizationId: 1, meetingDate: -1, _id: -1 },
+        name: "org_meeting_date_id",
+      },
+      // Organization and meeting status.
+      {
+        key: { organizationId: 1, status: 1, meetingDate: -1 },
+        name: "org_status_meeting_date",
+      },
+      // Organization and meeting title search/sort.
+      {
+        key: { organizationId: 1, title: 1 },
+        name: "org_title",
+      },
+      // Meeting ID and participant ID lookup.
+      {
+        key: { _id: 1, participantIds: 1 },
+        name: "meeting_participants",
+      },
+      // Project-scoped meetings within an organization.
+      {
+        key: { organizationId: 1, projectId: 1, meetingDate: -1 },
+        name: "org_project_meeting_date",
+      },
+    ],
+  },
+  {
+    name: COLLECTIONS.meetingActionItems,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "meetingId",
+        "title",
+        "ownerId",
+        "targetDate",
+        "status",
+        "createdBy",
+        "completedAt",
+        "createdAt",
+        "updatedAt",
+      ],
+      properties: {
+        organizationId: objectId,
+        meetingId: objectId,
+        title: { bsonType: "string", minLength: 1, maxLength: 300 },
+        description: { bsonType: ["string", "null"], maxLength: 5000 },
+        ownerId: {
+          bsonType: ["string", "null"],
+          minLength: 1,
+          maxLength: 128,
+        },
+        targetDate: { bsonType: ["date", "null"] },
+        status: { enum: [...ACTION_ITEM_STATUSES] },
+        createdBy: userId,
+        completedAt: { bsonType: ["date", "null"] },
+        linkedTaskId: { bsonType: ["objectId", "null"] },
+        ...timestamps,
+      },
+    },
+    indexes: [
+      // Meeting ID and action-item status.
+      {
+        key: { meetingId: 1, status: 1, createdAt: 1 },
+        name: "meeting_status_created",
+      },
+      // Organization and action-item owner.
+      {
+        key: { organizationId: 1, ownerId: 1, status: 1 },
+        name: "org_owner_status",
+      },
+      // Organization and meeting chronological listing.
+      {
+        key: { organizationId: 1, meetingId: 1, createdAt: 1, _id: 1 },
+        name: "org_meeting_created_id",
+      },
+      // At most one action item linked to a given task within an org.
+      {
+        key: { organizationId: 1, linkedTaskId: 1 },
+        name: "org_linked_task_unique",
+        unique: true,
+        partialFilterExpression: { linkedTaskId: { $type: "objectId" } },
+      },
+    ],
+  },
+  {
+    name: COLLECTIONS.notifications,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "recipientId",
+        "type",
+        "title",
+        "message",
+        "createdAt",
+        "readAt",
+      ],
+      properties: {
+        organizationId: objectId,
+        recipientId: userId,
+        type: { enum: [...NOTIFICATION_TYPES] },
+        title: { bsonType: "string", minLength: 1, maxLength: 200 },
+        message: { bsonType: "string", minLength: 1, maxLength: 2000 },
+        url: { bsonType: ["string", "null"], maxLength: 2048 },
+        entityType: {
+          bsonType: ["string", "null"],
+          enum: [...NOTIFICATION_ENTITY_TYPES, null],
+        },
+        entityId: { bsonType: ["objectId", "null"] },
+        projectId: { bsonType: ["objectId", "null"] },
+        actorId: { bsonType: ["string", "null"], minLength: 1, maxLength: 128 },
+        dedupeKey: { bsonType: ["string", "null"], minLength: 1, maxLength: 256 },
+        createdAt: date,
+        readAt: { bsonType: ["date", "null"] },
+      },
+    },
+    indexes: [
+      // A recipient's notifications in an org, newest first with deterministic
+      // tie-breaker (unfiltered list + cursor pagination).
+      {
+        key: { organizationId: 1, recipientId: 1, createdAt: -1, _id: -1 },
+        name: "org_recipient_created_id",
+      },
+      // Unread/read filtered lists, unread count (`readAt: null`) and
+      // mark-all-as-read (`updateMany({ ..., readAt: null })`).
+      {
+        key: {
+          organizationId: 1,
+          recipientId: 1,
+          readAt: 1,
+          createdAt: -1,
+          _id: -1,
+        },
+        name: "org_recipient_read_created_id",
+      },
+      // Unique deduplication index for idempotent event notifications.
+      {
+        key: {
+          organizationId: 1,
+          recipientId: 1,
+          dedupeKey: 1,
+        },
+        name: "org_recipient_dedupe_unique",
+        unique: true,
+        partialFilterExpression: { dedupeKey: { $type: "string" } },
       },
     ],
   },

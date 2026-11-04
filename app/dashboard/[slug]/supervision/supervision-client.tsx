@@ -43,6 +43,10 @@ export type SerializedSupervisionTask = {
   } | null;
   deadline: string | null;
   approvalRequired: boolean;
+  sourceMeetingId?: string | null;
+  sourceMeetingTitle?: string | null;
+  sourceActionItemId?: string | null;
+  sourceActionItemTitle?: string | null;
   isBlocked: boolean;
   blockerCount: number;
   dependencyCount: number;

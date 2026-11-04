@@ -9,6 +9,7 @@ import {
   type UserOrganization,
 } from "@/lib/tenancy";
 import { SignOutButton } from "../sign-out-button";
+import { NotificationBell } from "./notification-bell";
 import { ProjectsClient, type ProjectSummary } from "./projects-client";
 
 export default function OrganizationWorkspacePage({
@@ -105,7 +106,10 @@ async function OrganizationWorkspace({
         <Link href="/dashboard" className="text-sm underline">
           ← Back to dashboard
         </Link>
-        <SignOutButton />
+        <div className="flex items-center gap-3">
+          <NotificationBell organizationSlug={organization.slug} />
+          <SignOutButton />
+        </div>
       </div>
 
       <header className="flex items-center justify-between gap-4">
@@ -123,6 +127,20 @@ async function OrganizationWorkspace({
               Supervision &amp; Reports
             </Link>
           ) : null}
+          <Link
+            href={`/dashboard/${encodeURIComponent(organization.slug)}/notifications`}
+            data-testid="org-notifications-link"
+            className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Notifications
+          </Link>
+          <Link
+            href={`/dashboard/${encodeURIComponent(organization.slug)}/meetings`}
+            data-testid="org-meetings-link"
+            className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Meetings
+          </Link>
           <Link
             href={`/dashboard/${encodeURIComponent(organization.slug)}/members`}
             className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"

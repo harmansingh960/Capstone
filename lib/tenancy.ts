@@ -4,20 +4,29 @@ import { ObjectId, type ClientSession } from "mongodb";
 import { getAuth } from "@/lib/auth";
 import { getCollections } from "@/lib/collections";
 import { getDb, getMongoClient } from "@/lib/db";
+import { createNotificationSafe } from "@/lib/notifications";
 import {
+  ACTION_ITEM_STATUSES,
   ACTIVITY_EVENT_TYPES,
   ACTIVITY_TARGET_TYPES,
+  MEETING_STATUSES,
   MEMBERSHIP_ROLES,
   PROJECT_STATUSES,
   REVIEW_DECISIONS,
   TASK_PRIORITIES,
   TASK_STATUSES,
+  type ActionItemStatus,
   type ActivityDoc,
   type ActivityEventType,
   type ActivityFieldChange,
   type ActivityFieldValue,
   type ActivityTargetType,
   type DeliverableDoc,
+  type MeetingActionItemDoc,
+  type MeetingDecisionDoc,
+  type MeetingDiscussionPointDoc,
+  type MeetingDoc,
+  type MeetingStatus,
   type MembershipDoc,
   type MembershipRole,
   type OrganizationDoc,
@@ -35,14 +44,22 @@ import {
 } from "@/lib/schema";
 
 export {
+  ACTION_ITEM_STATUSES,
   ACTIVITY_EVENT_TYPES,
   ACTIVITY_TARGET_TYPES,
+  MEETING_STATUSES,
   TASK_DELIVERABLE_STATUSES,
+  type ActionItemStatus,
   type ActivityDoc,
   type ActivityEventType,
   type ActivityFieldChange,
   type ActivityFieldValue,
   type ActivityTargetType,
+  type MeetingActionItemDoc,
+  type MeetingDecisionDoc,
+  type MeetingDiscussionPointDoc,
+  type MeetingDoc,
+  type MeetingStatus,
   type TaskDeliverableStatus,
 };
 
@@ -174,8 +191,8 @@ export async function requireMembership(
   return membership;
 }
 
-const ADMIN_ROLES: readonly MembershipRole[] = ["admin"];
-const MANAGER_ROLES: readonly MembershipRole[] = ["admin", "manager"];
+export const ADMIN_ROLES: readonly MembershipRole[] = ["admin"];
+export const MANAGER_ROLES: readonly MembershipRole[] = ["admin", "manager"];
 
 function isManagerRole(role: MembershipRole): boolean {
   return MANAGER_ROLES.includes(role);
@@ -1823,6 +1840,8 @@ function normalizeTaskDoc(
   return {
     ...doc,
     approvalRequired: doc.approvalRequired === true,
+    sourceMeetingId: doc.sourceMeetingId ?? null,
+    sourceActionItemId: doc.sourceActionItemId ?? null,
   };
 }
 
@@ -2012,7 +2031,7 @@ export async function createTask(
     );
   }
 
-  const { tasks, activities } = await getCollections();
+  const { tasks, activities, organizations } = await getCollections();
   const now = new Date();
   const doc: TaskDoc = {
     _id: new ObjectId(),
@@ -2027,6 +2046,8 @@ export async function createTask(
     createdBy: membership.userId,
     deadline,
     approvalRequired,
+    sourceMeetingId: null,
+    sourceActionItemId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -2084,6 +2105,26 @@ export async function createTask(
       await activities.insertOne(activityDoc);
     },
   );
+
+  if (doc.assigneeId !== null && doc.assigneeId !== membership.userId) {
+    const organization = await organizations.findOne({ _id: orgId });
+    if (organization) {
+      await createNotificationSafe({
+        organizationId: orgId,
+        recipientId: doc.assigneeId,
+        type: "task.assigned",
+        title: `Task assigned: ${doc.title}`,
+        message: `You were assigned to "${doc.title}" in project "${project.name}".`,
+        url: `/dashboard/${organization.slug}/projects/${project._id}#task-${doc._id}`,
+        entityType: "task",
+        entityId: doc._id,
+        projectId: project._id,
+        actorId: membership.userId,
+        dedupeKey: `task.assigned:${doc._id.toHexString()}:${doc.assigneeId}`,
+      });
+    }
+  }
+
   return doc;
 }
 
@@ -2431,7 +2472,8 @@ export async function updateTask(
 
   const orgId = membership.organizationId;
   const isManager = isManagerRole(membership.role);
-  const { tasks, taskDependencies, activities } = await getCollections();
+  const { tasks, taskDependencies, activities, organizations } =
+    await getCollections();
 
   const existing = await tasks.findOne({ _id: taskId, organizationId: orgId });
   if (!existing) {
@@ -2853,6 +2895,79 @@ export async function updateTask(
       return updatedDoc;
     },
   );
+
+  if (updated) {
+    const organization = await organizations.findOne({ _id: orgId });
+    if (organization) {
+      const effectiveProject = projectChanged
+        ? await requireProjectInOrg(membership, targetProjectId)
+        : existingProject;
+
+      if (
+        assigneeChanged &&
+        nextAssigneeId !== null &&
+        nextAssigneeId !== existingNorm.assigneeId &&
+        nextAssigneeId !== membership.userId
+      ) {
+        await createNotificationSafe({
+          organizationId: orgId,
+          recipientId: nextAssigneeId,
+          type: "task.assigned",
+          title: `Task assigned: ${nextTitle}`,
+          message: `You were assigned to "${nextTitle}" in project "${effectiveProject.name}".`,
+          url: `/dashboard/${organization.slug}/projects/${targetProjectId}#task-${existing._id}`,
+          entityType: "task",
+          entityId: existing._id,
+          projectId: targetProjectId,
+          actorId: membership.userId,
+          dedupeKey: `task.assigned:${existing._id.toHexString()}:${nextAssigneeId}:${updates.updatedAt.getTime()}`,
+        });
+      } else if (
+        !assigneeChanged &&
+        nextAssigneeId !== null &&
+        nextAssigneeId !== membership.userId &&
+        (statusChanged || priorityChanged || deadlineChanged || titleChanged)
+      ) {
+        const changeNotes: string[] = [];
+        if (statusChanged) {
+          changeNotes.push(
+            `status changed to ${ACTIVITY_STATUS_LABELS[targetStatus]}`,
+          );
+        }
+        if (priorityChanged) {
+          changeNotes.push(
+            `priority changed to ${ACTIVITY_PRIORITY_LABELS[nextPriority]}`,
+          );
+        }
+        if (deadlineChanged) {
+          changeNotes.push(
+            afterDeadlineIso
+              ? `deadline set to ${afterDeadlineIso.slice(0, 10)}`
+              : "deadline cleared",
+          );
+        }
+        if (titleChanged) {
+          changeNotes.push(`renamed from "${existingNorm.title}"`);
+        }
+        if (changeNotes.length > 0) {
+          await createNotificationSafe({
+            organizationId: orgId,
+            recipientId: nextAssigneeId,
+            type: "task.updated",
+            title: `Task updated: ${nextTitle}`,
+            message: `Task "${nextTitle}" was updated: ${changeNotes.join(", ")}.`,
+            url: `/dashboard/${organization.slug}/projects/${targetProjectId}#task-${existing._id}`,
+            entityType: "task",
+            entityId: existing._id,
+            projectId: targetProjectId,
+            actorId: membership.userId,
+            dedupeKey: `task.updated:${existing._id.toHexString()}:${updates.updatedAt.getTime()}`,
+          });
+        }
+      }
+    }
+  }
+
   return updated ? normalizeTaskDoc(updated) : null;
 }
 
@@ -3038,7 +3153,12 @@ export async function createDeliverable(
     );
   }
 
-  const { deliverables, activities } = await getCollections();
+  const {
+    deliverables,
+    activities,
+    memberships: membershipsColl,
+    organizations,
+  } = await getCollections();
   const priorCount = await deliverables.countDocuments({
     organizationId: membership.organizationId,
     projectId: project._id,
@@ -3096,6 +3216,39 @@ export async function createDeliverable(
       await activities.insertOne(activityDoc);
     },
   );
+
+  const organization = await organizations.findOne({
+    _id: membership.organizationId,
+  });
+  if (organization) {
+    const reviewers = await membershipsColl
+      .find({
+        organizationId: membership.organizationId,
+        role: { $in: ["admin", "manager"] },
+        userId: { $ne: membership.userId },
+      })
+      .toArray();
+
+    for (const reviewer of reviewers) {
+      await createNotificationSafe({
+        organizationId: membership.organizationId,
+        recipientId: reviewer.userId,
+        type: "deliverable.submitted",
+        title: `Deliverable submitted: ${task.title}`,
+        message:
+          submissionNumber > 1
+            ? `Revised deliverable #${submissionNumber} was submitted for "${task.title}".`
+            : `A deliverable was submitted for "${task.title}".`,
+        url: `/dashboard/${organization.slug}/projects/${project._id}#task-${task._id}`,
+        entityType: "deliverable",
+        entityId: doc._id,
+        projectId: project._id,
+        actorId: membership.userId,
+        dedupeKey: `deliverable.submitted:${doc._id.toHexString()}:${reviewer.userId}`,
+      });
+    }
+  }
+
   return doc;
 }
 
@@ -3242,7 +3395,7 @@ export async function createReview(
   const decision = validateReviewDecision(input.decision);
   const comment = validateReviewComment(input.comment, decision);
 
-  const { reviews, activities } = await getCollections();
+  const { reviews, activities, organizations } = await getCollections();
   const previousReview = await reviews.findOne(
     {
       organizationId: membership.organizationId,
@@ -3327,6 +3480,49 @@ export async function createReview(
       await activities.insertOne(activityDoc);
     },
   );
+
+  const organization = await organizations.findOne({
+    _id: membership.organizationId,
+  });
+  if (organization) {
+    const recipients = new Set<string>();
+    if (
+      deliverable.submittedBy &&
+      deliverable.submittedBy !== membership.userId
+    ) {
+      recipients.add(deliverable.submittedBy);
+    }
+    if (task.assigneeId && task.assigneeId !== membership.userId) {
+      recipients.add(task.assigneeId);
+    }
+
+    const decisionText =
+      decision === "approved" ? "Approved" : "Changes requested";
+    const commentNote =
+      comment && comment.trim() !== ""
+        ? ` Note: "${comment.length > 150 ? comment.slice(0, 147) + "..." : comment}"`
+        : "";
+
+    for (const recipientId of recipients) {
+      await createNotificationSafe({
+        organizationId: membership.organizationId,
+        recipientId,
+        type: "review.decided",
+        title:
+          decision === "approved"
+            ? `Deliverable approved: ${task.title}`
+            : `Changes requested: ${task.title}`,
+        message: `Review decision on "${task.title}": ${decisionText}.${commentNote}`,
+        url: `/dashboard/${organization.slug}/projects/${project._id}#task-${task._id}`,
+        entityType: "review",
+        entityId: doc._id,
+        projectId: project._id,
+        actorId: membership.userId,
+        dedupeKey: `review.decided:${doc._id.toHexString()}:${recipientId}`,
+      });
+    }
+  }
+
   return doc;
 }
 
@@ -4413,9 +4609,9 @@ function formatActivityFieldValue(
   value: ActivityFieldValue,
   profilesById: ReadonlyMap<UserId, { name: string | null; email: string | null }>,
 ): string | null {
-  if (field === "assigneeId") {
+  if (field === "assigneeId" || field === "ownerId" || field === "participantId") {
     if (value === null || value === "") {
-      return "Unassigned";
+      return field === "participantId" ? "None" : "Unassigned";
     }
     const userId = String(value);
     const profile = profilesById.get(userId);
@@ -4428,9 +4624,13 @@ function formatActivityFieldValue(
     return userId;
   }
 
-  if (field === "deadline") {
+  if (field === "deadline" || field === "targetDate" || field === "meetingDate") {
     if (value === null || value === "") {
-      return "No deadline";
+      return field === "targetDate"
+        ? "No target date"
+        : field === "meetingDate"
+          ? "Not set"
+          : "No deadline";
     }
     return String(value).slice(0, 10);
   }
@@ -4440,6 +4640,11 @@ function formatActivityFieldValue(
     return value === true ? "Required" : "Not required";
   }
 
+  if (field === "archived") {
+    if (value === null) return null;
+    return value === true ? "Archived" : "Active";
+  }
+
   if (field === "status") {
     if (value === null) return null;
     if (typeof value === "string" && value in ACTIVITY_STATUS_LABELS) {
@@ -4447,6 +4652,10 @@ function formatActivityFieldValue(
     }
     if (value === "active") return "Active";
     if (value === "archived") return "Archived";
+    if (value === "scheduled") return "Scheduled";
+    if (value === "completed") return "Completed";
+    if (value === "cancelled") return "Cancelled";
+    if (value === "open") return "Open";
     return String(value);
   }
 
@@ -4484,7 +4693,11 @@ async function hydrateActivityItems(
   for (const doc of docs) {
     userIdSet.add(doc.actorId);
     for (const change of doc.changes ?? []) {
-      if (change.field === "assigneeId") {
+      if (
+        change.field === "assigneeId" ||
+        change.field === "ownerId" ||
+        change.field === "participantId"
+      ) {
         if (typeof change.before === "string" && change.before.trim() !== "") {
           userIdSet.add(change.before.trim());
         }
@@ -4695,6 +4908,7 @@ export const MEANINGFUL_TASK_ACTIVITY_EVENT_TYPES: readonly ActivityEventType[] 
   "review.approved",
   "review.changes_requested",
   "review.decision_updated",
+  "action_item.converted_to_task",
 ] as const;
 
 export const TASK_DEADLINE_STATES = [
@@ -5538,6 +5752,10 @@ export type EnrichedTaskItem = {
   createdBy: UserId;
   deadline: Date | null;
   approvalRequired: boolean;
+  sourceMeetingId: string | null;
+  sourceMeetingTitle: string | null;
+  sourceActionItemId: string | null;
+  sourceActionItemTitle: string | null;
   isBlocked: boolean;
   blockerCount: number;
   dependencyCount: number;
@@ -5608,11 +5826,25 @@ async function hydrateEnrichedTasksInternal(
   const parentIdsToLookup = new Map<string, ObjectId>();
   const taskTitleByHex = new Map<string, string>();
   const assigneeIds = new Set<UserId>();
+  const sourceMeetingIdsToLookup = new Map<string, ObjectId>();
+  const sourceActionItemIdsToLookup = new Map<string, ObjectId>();
 
   for (const doc of taskDocs) {
     taskTitleByHex.set(doc._id.toHexString(), doc.title);
     if (doc.assigneeId) {
       assigneeIds.add(doc.assigneeId);
+    }
+    if (doc.sourceMeetingId) {
+      const mHex = doc.sourceMeetingId.toHexString();
+      if (!sourceMeetingIdsToLookup.has(mHex)) {
+        sourceMeetingIdsToLookup.set(mHex, doc.sourceMeetingId);
+      }
+    }
+    if (doc.sourceActionItemId) {
+      const aiHex = doc.sourceActionItemId.toHexString();
+      if (!sourceActionItemIdsToLookup.has(aiHex)) {
+        sourceActionItemIdsToLookup.set(aiHex, doc.sourceActionItemId);
+      }
     }
   }
   for (const doc of taskDocs) {
@@ -5624,7 +5856,7 @@ async function hydrateEnrichedTasksInternal(
     }
   }
 
-  const { tasks, memberships } = await getCollections();
+  const { tasks, memberships, meetings, meetingActionItems } = await getCollections();
   const assigneeIdList = Array.from(assigneeIds);
 
   const [
@@ -5634,6 +5866,8 @@ async function hydrateEnrichedTasksInternal(
     missingParents,
     profilesById,
     memberDocs,
+    sourceMeetings,
+    sourceActionItems,
   ] = await Promise.all([
     getOrgTasksDeliverableStatusesInternal(organizationId, taskDocs),
     getOrgTasksBlockerSummariesInternal(organizationId, taskIds),
@@ -5660,10 +5894,45 @@ async function hydrateEnrichedTasksInternal(
           )
           .toArray()
       : Promise.resolve([]),
+    sourceMeetingIdsToLookup.size > 0
+      ? meetings
+          .find(
+            {
+              _id: { $in: Array.from(sourceMeetingIdsToLookup.values()) },
+              organizationId,
+            },
+            { projection: { _id: 1, title: 1 } },
+          )
+          .toArray()
+      : Promise.resolve([]),
+    sourceActionItemIdsToLookup.size > 0
+      ? meetingActionItems
+          .find(
+            {
+              _id: { $in: Array.from(sourceActionItemIdsToLookup.values()) },
+              organizationId,
+            },
+            { projection: { _id: 1, title: 1, meetingId: 1 } },
+          )
+          .toArray()
+      : Promise.resolve([]),
   ]);
 
   for (const p of missingParents) {
     taskTitleByHex.set(p._id.toHexString(), p.title);
+  }
+
+  const sourceMeetingTitleByHex = new Map<string, string>();
+  for (const m of sourceMeetings) {
+    sourceMeetingTitleByHex.set(m._id.toHexString(), m.title);
+  }
+
+  const sourceActionItemTitleByHex = new Map<string, string>();
+  const sourceActionItemMeetingHexByHex = new Map<string, string>();
+  for (const ai of sourceActionItems) {
+    const aiHex = ai._id.toHexString();
+    sourceActionItemTitleByHex.set(aiHex, ai.title);
+    sourceActionItemMeetingHexByHex.set(aiHex, ai.meetingId.toHexString());
   }
 
   const roleByUserId = new Map<UserId, MembershipRole>();
@@ -5680,6 +5949,20 @@ async function hydrateEnrichedTasksInternal(
     const parentHex = doc.parentTaskId ? doc.parentTaskId.toHexString() : null;
     const parentTaskTitle = parentHex
       ? (taskTitleByHex.get(parentHex) ?? null)
+      : null;
+    const sourceActionItemHex = doc.sourceActionItemId
+      ? doc.sourceActionItemId.toHexString()
+      : null;
+    const sourceMeetingHex = doc.sourceMeetingId
+      ? doc.sourceMeetingId.toHexString()
+      : sourceActionItemHex
+        ? (sourceActionItemMeetingHexByHex.get(sourceActionItemHex) ?? null)
+        : null;
+    const sourceMeetingTitle = sourceMeetingHex
+      ? (sourceMeetingTitleByHex.get(sourceMeetingHex) ?? null)
+      : null;
+    const sourceActionItemTitle = sourceActionItemHex
+      ? (sourceActionItemTitleByHex.get(sourceActionItemHex) ?? null)
       : null;
 
     const blockerSummary = blockerSummaries.get(hex);
@@ -5721,6 +6004,10 @@ async function hydrateEnrichedTasksInternal(
       createdBy: doc.createdBy,
       deadline: doc.deadline ?? null,
       approvalRequired: doc.approvalRequired === true,
+      sourceMeetingId: sourceMeetingHex,
+      sourceMeetingTitle,
+      sourceActionItemId: sourceActionItemHex,
+      sourceActionItemTitle,
       isBlocked: blockerSummary?.isBlocked ?? false,
       blockerCount: blockerSummary?.blockerCount ?? 0,
       dependencyCount: blockerSummary?.dependencyCount ?? 0,
@@ -7627,4 +7914,3310 @@ export async function getSupervisionReports(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6.1–6.3: Meeting Foundation (Meetings, Participants, Notes, Decisions & Action Items)
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_MEETING_PAGE_LIMIT = 20;
+export const MAX_MEETING_PAGE_LIMIT = 100;
+
+export const MEETING_ARCHIVE_FILTERS = ["active", "archived", "all"] as const;
+export type MeetingArchiveFilter = (typeof MEETING_ARCHIVE_FILTERS)[number];
+
+const MEETING_TITLE_MIN_LENGTH = 1;
+const MEETING_TITLE_MAX_LENGTH = 200;
+const MEETING_DESCRIPTION_MAX_LENGTH = 5000;
+const MEETING_NOTES_MAX_LENGTH = 20000;
+const DISCUSSION_POINT_MAX_LENGTH = 5000;
+const DECISION_TITLE_MAX_LENGTH = 300;
+const DECISION_DESCRIPTION_MAX_LENGTH = 5000;
+
+const ACTION_ITEM_TITLE_MIN_LENGTH = 1;
+const ACTION_ITEM_TITLE_MAX_LENGTH = 300;
+const ACTION_ITEM_DESCRIPTION_MAX_LENGTH = 5000;
+
+export const ARCHIVED_MEETING_MODIFICATION_MESSAGE =
+  "Cannot modify an archived meeting unless unarchiving it.";
+export const ARCHIVED_MEETING_ACTION_ITEM_MESSAGE =
+  "Cannot create or modify action items in an archived meeting.";
+
+export function validateMeetingTitle(raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new TenantValidationError("Meeting title must be a string.");
+  }
+  const trimmed = raw.trim();
+  if (
+    trimmed.length < MEETING_TITLE_MIN_LENGTH ||
+    trimmed.length > MEETING_TITLE_MAX_LENGTH
+  ) {
+    throw new TenantValidationError(
+      `Meeting title must be between ${MEETING_TITLE_MIN_LENGTH} and ${MEETING_TITLE_MAX_LENGTH} characters.`,
+    );
+  }
+  return trimmed;
+}
+
+export function validateMeetingDescription(raw: unknown): string | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (typeof raw !== "string") {
+    throw new TenantValidationError(
+      "Meeting description must be a string or null.",
+    );
+  }
+  if (raw.length > MEETING_DESCRIPTION_MAX_LENGTH) {
+    throw new TenantValidationError(
+      `Meeting description must be at most ${MEETING_DESCRIPTION_MAX_LENGTH} characters.`,
+    );
+  }
+  return normalizeDescription(raw);
+}
+
+export function validateMeetingNotes(raw: unknown): string | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (typeof raw !== "string") {
+    throw new TenantValidationError("Meeting notes must be a string or null.");
+  }
+  if (raw.length > MEETING_NOTES_MAX_LENGTH) {
+    throw new TenantValidationError(
+      `Meeting notes must be at most ${MEETING_NOTES_MAX_LENGTH} characters.`,
+    );
+  }
+  return raw.trim() === "" ? null : raw;
+}
+
+export function validateMeetingDate(raw: unknown): Date {
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) {
+      throw new TenantValidationError("Meeting date must be a valid date.");
+    }
+    return raw;
+  }
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw new TenantValidationError(
+      "Meeting date is required and must be a valid ISO date string.",
+    );
+  }
+  const trimmed = raw.trim();
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? new Date(`${trimmed}T00:00:00.000Z`)
+    : new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new TenantValidationError(
+      "Meeting date must be a valid ISO date string.",
+    );
+  }
+  return parsed;
+}
+
+export function validateMeetingStatus(raw: unknown): MeetingStatus {
+  if (
+    typeof raw !== "string" ||
+    !(MEETING_STATUSES as readonly string[]).includes(raw)
+  ) {
+    throw new TenantValidationError(
+      `Meeting status must be one of: ${MEETING_STATUSES.join(", ")}.`,
+    );
+  }
+  return raw as MeetingStatus;
+}
+
+export function validateMeetingStatusFilter(
+  raw: unknown,
+): MeetingStatus | "all" {
+  if (raw === undefined || raw === null || raw === "" || raw === "all") {
+    return "all";
+  }
+  return validateMeetingStatus(raw);
+}
+
+export function validateMeetingArchiveFilter(
+  rawArchived?: unknown,
+  rawIncludeArchived?: unknown,
+): MeetingArchiveFilter {
+  if (
+    rawArchived !== undefined &&
+    rawArchived !== null &&
+    rawArchived !== ""
+  ) {
+    if (rawArchived === "active" || rawArchived === "false" || rawArchived === false) {
+      return "active";
+    }
+    if (rawArchived === "archived" || rawArchived === "only" || rawArchived === "true" || rawArchived === true) {
+      return "archived";
+    }
+    if (rawArchived === "all") {
+      return "all";
+    }
+    throw new TenantValidationError(
+      `Invalid archived filter "${String(rawArchived)}". Supported values: active, archived, all.`,
+    );
+  }
+  if (
+    rawIncludeArchived === true ||
+    rawIncludeArchived === "true" ||
+    rawIncludeArchived === "1"
+  ) {
+    return "all";
+  }
+  return "active";
+}
+
+export function validateActionItemTitle(raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new TenantValidationError("Action item title must be a string.");
+  }
+  const trimmed = raw.trim();
+  if (
+    trimmed.length < ACTION_ITEM_TITLE_MIN_LENGTH ||
+    trimmed.length > ACTION_ITEM_TITLE_MAX_LENGTH
+  ) {
+    throw new TenantValidationError(
+      `Action item title must be between ${ACTION_ITEM_TITLE_MIN_LENGTH} and ${ACTION_ITEM_TITLE_MAX_LENGTH} characters.`,
+    );
+  }
+  return trimmed;
+}
+
+export function validateActionItemDescription(raw: unknown): string | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (typeof raw !== "string") {
+    throw new TenantValidationError(
+      "Action item description must be a string or null.",
+    );
+  }
+  if (raw.length > ACTION_ITEM_DESCRIPTION_MAX_LENGTH) {
+    throw new TenantValidationError(
+      `Action item description must be at most ${ACTION_ITEM_DESCRIPTION_MAX_LENGTH} characters.`,
+    );
+  }
+  return normalizeDescription(raw);
+}
+
+export function validateActionItemTargetDate(raw: unknown): Date | null {
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) {
+      throw new TenantValidationError(
+        "Action item targetDate must be a valid Date or null.",
+      );
+    }
+    return raw;
+  }
+  if (typeof raw !== "string") {
+    throw new TenantValidationError(
+      "Action item targetDate must be an ISO date string or null.",
+    );
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? new Date(`${trimmed}T00:00:00.000Z`)
+    : new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new TenantValidationError(
+      "Action item targetDate must be a valid ISO date string or null.",
+    );
+  }
+  return parsed;
+}
+
+export function validateActionItemStatus(raw: unknown): ActionItemStatus {
+  if (
+    typeof raw !== "string" ||
+    !(ACTION_ITEM_STATUSES as readonly string[]).includes(raw)
+  ) {
+    throw new TenantValidationError(
+      `Action item status must be one of: ${ACTION_ITEM_STATUSES.join(", ")}.`,
+    );
+  }
+  return raw as ActionItemStatus;
+}
+
+export function validateActionItemStatusFilter(
+  raw: unknown,
+): ActionItemStatus | "all" {
+  if (raw === undefined || raw === null || raw === "" || raw === "all") {
+    return "all";
+  }
+  return validateActionItemStatus(raw);
+}
+
+function validateDiscussionPointContent(raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new TenantValidationError("Discussion point content must be a string.");
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length < 1 || trimmed.length > DISCUSSION_POINT_MAX_LENGTH) {
+    throw new TenantValidationError(
+      `Discussion point content must be between 1 and ${DISCUSSION_POINT_MAX_LENGTH} characters.`,
+    );
+  }
+  return trimmed;
+}
+
+function validateDecisionTitle(raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new TenantValidationError("Decision title must be a string.");
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length < 1 || trimmed.length > DECISION_TITLE_MAX_LENGTH) {
+    throw new TenantValidationError(
+      `Decision title must be between 1 and ${DECISION_TITLE_MAX_LENGTH} characters.`,
+    );
+  }
+  return trimmed;
+}
+
+function validateDecisionDescription(raw: unknown): string | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (typeof raw !== "string") {
+    throw new TenantValidationError(
+      "Decision description must be a string or null.",
+    );
+  }
+  if (raw.length > DECISION_DESCRIPTION_MAX_LENGTH) {
+    throw new TenantValidationError(
+      `Decision description must be at most ${DECISION_DESCRIPTION_MAX_LENGTH} characters.`,
+    );
+  }
+  return normalizeDescription(raw);
+}
+
+async function validateParticipantUserIdsInOrg(
+  membership: MembershipDoc,
+  rawParticipantIds: unknown,
+): Promise<UserId[]> {
+  if (rawParticipantIds === undefined || rawParticipantIds === null) {
+    return [];
+  }
+  if (!Array.isArray(rawParticipantIds)) {
+    throw new TenantValidationError(
+      "participantIds must be an array of organization member userId strings.",
+    );
+  }
+
+  const deduped: UserId[] = [];
+  const seen = new Set<UserId>();
+  for (const item of rawParticipantIds) {
+    const uid = validateMemberUserId(item);
+    if (!seen.has(uid)) {
+      seen.add(uid);
+      deduped.push(uid);
+    }
+  }
+
+  if (deduped.length === 0) {
+    return [];
+  }
+
+  const { memberships } = await getCollections();
+  const matched = await memberships
+    .find(
+      {
+        organizationId: membership.organizationId,
+        userId: { $in: deduped },
+      },
+      { projection: { _id: 0, userId: 1 } },
+    )
+    .toArray();
+
+  const validMemberIds = new Set(matched.map((m) => m.userId));
+  for (const uid of deduped) {
+    if (!validMemberIds.has(uid)) {
+      throw new TenantValidationError(
+        `Participant "${uid}" is not a member of this organization.`,
+      );
+    }
+  }
+
+  return deduped;
+}
+
+function parseDiscussionPointsInput(
+  rawPoints: unknown,
+  actorId: UserId,
+  now: Date,
+  existingPoints?: readonly MeetingDiscussionPointDoc[],
+): MeetingDiscussionPointDoc[] {
+  if (!Array.isArray(rawPoints)) {
+    throw new TenantValidationError(
+      "discussionPoints must be an array of discussion point items.",
+    );
+  }
+  const existingById = new Map<string, MeetingDiscussionPointDoc>();
+  for (const pt of existingPoints ?? []) {
+    existingById.set(pt.id, pt);
+  }
+
+  return rawPoints.map((entry) => {
+    if (typeof entry === "string") {
+      const content = validateDiscussionPointContent(entry);
+      return {
+        id: new ObjectId().toHexString(),
+        content,
+        authorId: actorId,
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    if (!isPlainObject(entry)) {
+      throw new TenantValidationError(
+        "Each discussion point must be a string or an object with a content field.",
+      );
+    }
+    const content = validateDiscussionPointContent(entry.content);
+    const id =
+      typeof entry.id === "string" && entry.id.trim().length > 0 && entry.id.trim().length <= 64
+        ? entry.id.trim()
+        : new ObjectId().toHexString();
+    const prev = existingById.get(id);
+    return {
+      id,
+      content,
+      authorId: prev ? prev.authorId : actorId,
+      createdAt: prev ? prev.createdAt : now,
+      updatedAt: prev && prev.content === content ? prev.updatedAt : now,
+    };
+  });
+}
+
+function parseDecisionsInput(
+  rawDecisions: unknown,
+  actorId: UserId,
+  now: Date,
+  existingDecisions?: readonly MeetingDecisionDoc[],
+): MeetingDecisionDoc[] {
+  if (!Array.isArray(rawDecisions)) {
+    throw new TenantValidationError(
+      "decisions must be an array of decision items.",
+    );
+  }
+  const existingById = new Map<string, MeetingDecisionDoc>();
+  for (const dec of existingDecisions ?? []) {
+    existingById.set(dec.id, dec);
+  }
+
+  return rawDecisions.map((entry) => {
+    if (typeof entry === "string") {
+      const title = validateDecisionTitle(entry);
+      return {
+        id: new ObjectId().toHexString(),
+        title,
+        description: null,
+        decidedBy: actorId,
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    if (!isPlainObject(entry)) {
+      throw new TenantValidationError(
+        "Each decision must be a string or an object with title and optional description.",
+      );
+    }
+    const title = validateDecisionTitle(entry.title ?? entry.content);
+    const description = validateDecisionDescription(entry.description);
+    const id =
+      typeof entry.id === "string" && entry.id.trim().length > 0 && entry.id.trim().length <= 64
+        ? entry.id.trim()
+        : new ObjectId().toHexString();
+    const prev = existingById.get(id);
+    const unchanged =
+      prev !== undefined &&
+      prev.title === title &&
+      (prev.description ?? null) === description;
+    return {
+      id,
+      title,
+      description,
+      decidedBy: prev ? prev.decidedBy : actorId,
+      createdAt: prev ? prev.createdAt : now,
+      updatedAt: unchanged ? prev.updatedAt : now,
+    };
+  });
+}
+
+export type MeetingParticipantItem = {
+  userId: UserId;
+  name: string | null;
+  email: string | null;
+  role: MembershipRole | null;
+};
+
+export type MeetingDiscussionPointItem = {
+  id: string;
+  content: string;
+  authorId: UserId;
+  authorName: string | null;
+  authorEmail: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type MeetingDecisionItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  decidedBy: UserId;
+  decidedByName: string | null;
+  decidedByEmail: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type MeetingActionItemCounts = {
+  total: number;
+  open: number;
+  inProgress: number;
+  completed: number;
+  cancelled: number;
+};
+
+export type MeetingEnriched = {
+  _id: ObjectId;
+  id: string;
+  organizationId: ObjectId;
+  projectId: ObjectId | null;
+  projectName: string | null;
+  projectStatus: ProjectStatus | null;
+  title: string;
+  meetingDate: Date;
+  description: string | null;
+  status: MeetingStatus;
+  participantIds: UserId[];
+  participants: MeetingParticipantItem[];
+  notes: string | null;
+  discussionPoints: MeetingDiscussionPointItem[];
+  decisions: MeetingDecisionItem[];
+  actionItemCounts: MeetingActionItemCounts;
+  createdBy: UserId;
+  createdByUser: {
+    userId: UserId;
+    name: string | null;
+    email: string | null;
+  };
+  archivedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type MeetingActionItemLinkedTaskSummary = {
+  id: string;
+  projectId: string;
+  projectName: string | null;
+  projectStatus: ProjectStatus | null;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+};
+
+export type MeetingActionItemEnriched = {
+  _id: ObjectId;
+  id: string;
+  organizationId: ObjectId;
+  meetingId: ObjectId;
+  title: string;
+  description: string | null;
+  ownerId: UserId | null;
+  owner: {
+    userId: UserId;
+    name: string | null;
+    email: string | null;
+    role: MembershipRole | null;
+  } | null;
+  targetDate: Date | null;
+  status: ActionItemStatus;
+  createdBy: UserId;
+  createdByUser: {
+    userId: UserId;
+    name: string | null;
+    email: string | null;
+  };
+  completedAt: Date | null;
+  linkedTaskId: ObjectId | null;
+  linkedTask: MeetingActionItemLinkedTaskSummary | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+async function enrichMeetingDocs(
+  organizationId: ObjectId,
+  docs: readonly MeetingDoc[],
+): Promise<MeetingEnriched[]> {
+  if (docs.length === 0) {
+    return [];
+  }
+
+  const meetingIds = docs.map((d) => d._id);
+  const projectIds: ObjectId[] = [];
+  const projectIdSet = new Set<string>();
+  const userIdSet = new Set<UserId>();
+
+  for (const doc of docs) {
+    userIdSet.add(doc.createdBy);
+    for (const pid of doc.participantIds ?? []) {
+      userIdSet.add(pid);
+    }
+    for (const pt of doc.discussionPoints ?? []) {
+      userIdSet.add(pt.authorId);
+    }
+    for (const dec of doc.decisions ?? []) {
+      userIdSet.add(dec.decidedBy);
+    }
+    if (doc.projectId) {
+      const pHex = doc.projectId.toHexString();
+      if (!projectIdSet.has(pHex)) {
+        projectIdSet.add(pHex);
+        projectIds.push(doc.projectId);
+      }
+    }
+  }
+
+  const allUserIds = Array.from(userIdSet);
+  const { memberships, projects, meetingActionItems } = await getCollections();
+
+  const [profilesById, memberDocs, projectDocs, actionItemCountRows] =
+    await Promise.all([
+      lookupRegisteredUsersByIds(allUserIds),
+      allUserIds.length > 0
+        ? memberships
+            .find(
+              { organizationId, userId: { $in: allUserIds } },
+              { projection: { _id: 0, userId: 1, role: 1 } },
+            )
+            .toArray()
+        : Promise.resolve([]),
+      projectIds.length > 0
+        ? projects
+            .find(
+              { organizationId, _id: { $in: projectIds } },
+              { projection: { _id: 1, name: 1, status: 1 } },
+            )
+            .toArray()
+        : Promise.resolve([]),
+      meetingActionItems
+        .aggregate<{
+          _id: { meetingId: ObjectId; status: ActionItemStatus };
+          count: number;
+        }>([
+          {
+            $match: {
+              organizationId,
+              meetingId: { $in: meetingIds },
+            },
+          },
+          {
+            $group: {
+              _id: { meetingId: "$meetingId", status: "$status" },
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .toArray(),
+    ]);
+
+  const roleByUserId = new Map<UserId, MembershipRole>();
+  for (const m of memberDocs) {
+    roleByUserId.set(m.userId, m.role);
+  }
+
+  const projectByHex = new Map<string, Pick<ProjectDoc, "_id" | "name" | "status">>();
+  for (const p of projectDocs) {
+    projectByHex.set(p._id.toHexString(), p);
+  }
+
+  const countsByMeetingHex = new Map<string, MeetingActionItemCounts>();
+  for (const doc of docs) {
+    countsByMeetingHex.set(doc._id.toHexString(), {
+      total: 0,
+      open: 0,
+      inProgress: 0,
+      completed: 0,
+      cancelled: 0,
+    });
+  }
+  for (const row of actionItemCountRows) {
+    const mHex = row._id.meetingId.toHexString();
+    const bucket = countsByMeetingHex.get(mHex);
+    if (!bucket) continue;
+    bucket.total += row.count;
+    if (row._id.status === "open") bucket.open += row.count;
+    else if (row._id.status === "in_progress") bucket.inProgress += row.count;
+    else if (row._id.status === "completed") bucket.completed += row.count;
+    else if (row._id.status === "cancelled") bucket.cancelled += row.count;
+  }
+
+  return docs.map((doc) => {
+    const mHex = doc._id.toHexString();
+    const proj = doc.projectId ? projectByHex.get(doc.projectId.toHexString()) : undefined;
+    const creatorProfile = profilesById.get(doc.createdBy);
+    const participantIds = Array.isArray(doc.participantIds) ? doc.participantIds : [];
+    const participants: MeetingParticipantItem[] = participantIds.map((uid) => {
+      const prof = profilesById.get(uid);
+      return {
+        userId: uid,
+        name: prof?.name ?? null,
+        email: prof?.email ?? null,
+        role: roleByUserId.get(uid) ?? null,
+      };
+    });
+
+    const discussionPoints: MeetingDiscussionPointItem[] = (
+      doc.discussionPoints ?? []
+    ).map((pt) => {
+      const prof = profilesById.get(pt.authorId);
+      return {
+        id: pt.id,
+        content: pt.content,
+        authorId: pt.authorId,
+        authorName: prof?.name ?? null,
+        authorEmail: prof?.email ?? null,
+        createdAt: pt.createdAt,
+        updatedAt: pt.updatedAt,
+      };
+    });
+
+    const decisions: MeetingDecisionItem[] = (doc.decisions ?? []).map((dec) => {
+      const prof = profilesById.get(dec.decidedBy);
+      return {
+        id: dec.id,
+        title: dec.title,
+        description: dec.description ?? null,
+        decidedBy: dec.decidedBy,
+        decidedByName: prof?.name ?? null,
+        decidedByEmail: prof?.email ?? null,
+        createdAt: dec.createdAt,
+        updatedAt: dec.updatedAt,
+      };
+    });
+
+    return {
+      _id: doc._id,
+      id: mHex,
+      organizationId: doc.organizationId,
+      projectId: doc.projectId ?? null,
+      projectName: proj?.name ?? null,
+      projectStatus: proj?.status ?? null,
+      title: doc.title,
+      meetingDate: doc.meetingDate,
+      description: doc.description ?? null,
+      status: doc.status,
+      participantIds,
+      participants,
+      notes: doc.notes ?? null,
+      discussionPoints,
+      decisions,
+      actionItemCounts: countsByMeetingHex.get(mHex) ?? {
+        total: 0,
+        open: 0,
+        inProgress: 0,
+        completed: 0,
+        cancelled: 0,
+      },
+      createdBy: doc.createdBy,
+      createdByUser: {
+        userId: doc.createdBy,
+        name: creatorProfile?.name ?? null,
+        email: creatorProfile?.email ?? null,
+      },
+      archivedAt: doc.archivedAt ?? null,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  });
+}
+
+async function enrichActionItemDocs(
+  organizationId: ObjectId,
+  docs: readonly MeetingActionItemDoc[],
+): Promise<MeetingActionItemEnriched[]> {
+  if (docs.length === 0) {
+    return [];
+  }
+
+  const userIdSet = new Set<UserId>();
+  const actionItemIds = docs.map((d) => d._id);
+  const linkedTaskIds: ObjectId[] = [];
+  const linkedTaskIdHexSet = new Set<string>();
+
+  for (const doc of docs) {
+    userIdSet.add(doc.createdBy);
+    if (doc.ownerId) {
+      userIdSet.add(doc.ownerId);
+    }
+    if (doc.linkedTaskId) {
+      const tHex = doc.linkedTaskId.toHexString();
+      if (!linkedTaskIdHexSet.has(tHex)) {
+        linkedTaskIdHexSet.add(tHex);
+        linkedTaskIds.push(doc.linkedTaskId);
+      }
+    }
+  }
+
+  const allUserIds = Array.from(userIdSet);
+  const { memberships, tasks, projects } = await getCollections();
+  const taskMatchOr: Record<string, unknown>[] = [
+    { sourceActionItemId: { $in: actionItemIds } },
+  ];
+  if (linkedTaskIds.length > 0) {
+    taskMatchOr.push({ _id: { $in: linkedTaskIds } });
+  }
+
+  const [profilesById, memberDocs, linkedTaskDocs] = await Promise.all([
+    lookupRegisteredUsersByIds(allUserIds),
+    allUserIds.length > 0
+      ? memberships
+          .find(
+            { organizationId, userId: { $in: allUserIds } },
+            { projection: { _id: 0, userId: 1, role: 1 } },
+          )
+          .toArray()
+      : Promise.resolve([]),
+    tasks
+      .find(
+        {
+          organizationId,
+          $or: taskMatchOr,
+        },
+        {
+          projection: {
+            _id: 1,
+            projectId: 1,
+            title: 1,
+            status: 1,
+            priority: 1,
+            sourceActionItemId: 1,
+          },
+        },
+      )
+      .toArray(),
+  ]);
+
+  const projectIdsToLookup: ObjectId[] = [];
+  const projectIdHexSet = new Set<string>();
+  const linkedTaskByHex = new Map<string, Pick<TaskDoc, "_id" | "projectId" | "title" | "status" | "priority" | "sourceActionItemId">>();
+  const linkedTaskByActionItemHex = new Map<string, Pick<TaskDoc, "_id" | "projectId" | "title" | "status" | "priority" | "sourceActionItemId">>();
+
+  for (const t of linkedTaskDocs) {
+    const tHex = t._id.toHexString();
+    linkedTaskByHex.set(tHex, t);
+    if (t.sourceActionItemId) {
+      linkedTaskByActionItemHex.set(t.sourceActionItemId.toHexString(), t);
+    }
+    const pHex = t.projectId.toHexString();
+    if (!projectIdHexSet.has(pHex)) {
+      projectIdHexSet.add(pHex);
+      projectIdsToLookup.push(t.projectId);
+    }
+  }
+
+  const projectDocs =
+    projectIdsToLookup.length > 0
+      ? await projects
+          .find(
+            { organizationId, _id: { $in: projectIdsToLookup } },
+            { projection: { _id: 1, name: 1, status: 1 } },
+          )
+          .toArray()
+      : [];
+
+  const projectByHex = new Map<string, Pick<ProjectDoc, "_id" | "name" | "status">>();
+  for (const p of projectDocs) {
+    projectByHex.set(p._id.toHexString(), p);
+  }
+
+  const roleByUserId = new Map<UserId, MembershipRole>();
+  for (const m of memberDocs) {
+    roleByUserId.set(m.userId, m.role);
+  }
+
+  return docs.map((doc) => {
+    const ownerProfile = doc.ownerId ? profilesById.get(doc.ownerId) : undefined;
+    const creatorProfile = profilesById.get(doc.createdBy);
+    const aiHex = doc._id.toHexString();
+    const matchedTask =
+      (doc.linkedTaskId ? linkedTaskByHex.get(doc.linkedTaskId.toHexString()) : undefined) ??
+      linkedTaskByActionItemHex.get(aiHex);
+    const matchedProject = matchedTask
+      ? projectByHex.get(matchedTask.projectId.toHexString())
+      : undefined;
+
+    return {
+      _id: doc._id,
+      id: aiHex,
+      organizationId: doc.organizationId,
+      meetingId: doc.meetingId,
+      title: doc.title,
+      description: doc.description ?? null,
+      ownerId: doc.ownerId ?? null,
+      owner: doc.ownerId
+        ? {
+            userId: doc.ownerId,
+            name: ownerProfile?.name ?? null,
+            email: ownerProfile?.email ?? null,
+            role: roleByUserId.get(doc.ownerId) ?? null,
+          }
+        : null,
+      targetDate: doc.targetDate ?? null,
+      status: doc.status,
+      createdBy: doc.createdBy,
+      createdByUser: {
+        userId: doc.createdBy,
+        name: creatorProfile?.name ?? null,
+        email: creatorProfile?.email ?? null,
+      },
+      completedAt: doc.completedAt ?? null,
+      linkedTaskId: matchedTask ? matchedTask._id : (doc.linkedTaskId ?? null),
+      linkedTask: matchedTask
+        ? {
+            id: matchedTask._id.toHexString(),
+            projectId: matchedTask.projectId.toHexString(),
+            projectName: matchedProject?.name ?? null,
+            projectStatus: matchedProject?.status ?? null,
+            title: matchedTask.title,
+            status: matchedTask.status,
+            priority: matchedTask.priority,
+          }
+        : null,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    };
+  });
+}
+
+async function requireMeetingInOrg(
+  membership: MembershipDoc,
+  meetingId: ObjectId,
+): Promise<MeetingDoc> {
+  requireObjectId(meetingId, "meetingId");
+  const { meetings } = await getCollections();
+  const meeting = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!meeting) {
+    throw new TenantValidationError(
+      "Referenced meeting does not belong to this organization.",
+    );
+  }
+  return meeting;
+}
+
+export type CreateMeetingInput = {
+  title: string;
+  meetingDate: Date | string;
+  description?: string | null;
+  projectId?: ObjectId | string | null;
+  status?: MeetingStatus;
+  participantIds?: UserId[];
+  notes?: string | null;
+  discussionPoints?: unknown[];
+  decisions?: unknown[];
+};
+
+export async function createMeeting(
+  organizationId: ObjectId,
+  input: CreateMeetingInput,
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError("Meeting input must be a plain object.");
+  }
+
+  const title = validateMeetingTitle(input.title);
+  const meetingDate = validateMeetingDate(input.meetingDate);
+  const description = validateMeetingDescription(input.description);
+  const status =
+    input.status !== undefined
+      ? validateMeetingStatus(input.status)
+      : "scheduled";
+  const notes = validateMeetingNotes(input.notes);
+
+  let projectId: ObjectId | null = null;
+  if (
+    input.projectId !== undefined &&
+    input.projectId !== null &&
+    input.projectId !== ""
+  ) {
+    const parsedProjId =
+      input.projectId instanceof ObjectId
+        ? input.projectId
+        : typeof input.projectId === "string"
+          ? parseObjectId(input.projectId.trim())
+          : null;
+    if (!parsedProjId) {
+      throw new TenantValidationError("Invalid projectId.");
+    }
+    const project = await requireProjectInOrg(membership, parsedProjId);
+    projectId = project._id;
+  }
+
+  const participantIds = await validateParticipantUserIdsInOrg(
+    membership,
+    input.participantIds,
+  );
+
+  const now = new Date();
+  const discussionPoints =
+    input.discussionPoints !== undefined
+      ? parseDiscussionPointsInput(input.discussionPoints, membership.userId, now)
+      : [];
+  const decisions =
+    input.decisions !== undefined
+      ? parseDecisionsInput(input.decisions, membership.userId, now)
+      : [];
+
+  const doc: MeetingDoc = {
+    _id: new ObjectId(),
+    organizationId: membership.organizationId,
+    projectId,
+    title,
+    meetingDate,
+    description,
+    status,
+    participantIds,
+    notes,
+    discussionPoints,
+    decisions,
+    createdBy: membership.userId,
+    archivedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: doc.projectId,
+    taskId: null,
+    actorId: membership.userId,
+    eventType: "meeting.created",
+    targetType: "meeting",
+    targetId: doc._id,
+    summary: `Created meeting "${doc.title}"`,
+    changes: [
+      { field: "title", before: null, after: doc.title },
+      {
+        field: "meetingDate",
+        before: null,
+        after: doc.meetingDate.toISOString(),
+      },
+      { field: "status", before: null, after: doc.status },
+      ...(doc.description !== null && doc.description !== undefined
+        ? [{ field: "description", before: null, after: doc.description }]
+        : []),
+    ],
+    metadata: {
+      meetingTitle: doc.title,
+      participantCount: doc.participantIds.length,
+    },
+    createdAt: now,
+  });
+
+  const { meetings, activities, organizations } = await getCollections();
+  await runInTransactionOrFallback(
+    async (session) => {
+      await meetings.insertOne(doc, { session });
+      await activities.insertOne(activityDoc, { session });
+    },
+    async () => {
+      await meetings.insertOne(doc);
+      await activities.insertOne(activityDoc);
+    },
+  );
+
+  const organization = await organizations.findOne({
+    _id: membership.organizationId,
+  });
+  if (organization && Array.isArray(doc.participantIds)) {
+    const meetingDateStr = doc.meetingDate
+      ? ` scheduled for ${doc.meetingDate.toISOString().slice(0, 10)}`
+      : "";
+    for (const participantId of doc.participantIds) {
+      if (participantId !== membership.userId) {
+        await createNotificationSafe({
+          organizationId: membership.organizationId,
+          recipientId: participantId,
+          type: "meeting.participant_added",
+          title: `Added to meeting: ${doc.title}`,
+          message: `You were added as a participant to "${doc.title}"${meetingDateStr}.`,
+          url: `/dashboard/${organization.slug}/meetings/${doc._id}`,
+          entityType: "meeting",
+          entityId: doc._id,
+          projectId: doc.projectId ?? null,
+          actorId: membership.userId,
+          dedupeKey: `meeting.participant_added:${doc._id.toHexString()}:${participantId}`,
+        });
+      }
+    }
+  }
+
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [doc]);
+  return enriched;
+}
+
+export type ListMeetingsFilter = {
+  search?: unknown;
+  status?: unknown;
+  projectId?: unknown;
+  participantId?: unknown;
+  archived?: unknown;
+  includeArchived?: unknown;
+  page?: unknown;
+  limit?: unknown;
+};
+
+export type ListMeetingsResult = {
+  meetings: MeetingEnriched[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalCount: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
+};
+
+export async function listMeetings(
+  organizationId: ObjectId,
+  filter?: ListMeetingsFilter,
+  requestHeaders?: Headers,
+): Promise<ListMeetingsResult> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const orgId = membership.organizationId;
+
+  const statusFilter = validateMeetingStatusFilter(filter?.status);
+  const archiveFilter = validateMeetingArchiveFilter(
+    filter?.archived,
+    filter?.includeArchived,
+  );
+  const page = validateSupervisionPageNumber(filter?.page);
+  const limit = validateSupervisionPageLimit(
+    filter?.limit,
+    DEFAULT_MEETING_PAGE_LIMIT,
+  );
+
+  const mongoQuery: Record<string, unknown> = {
+    organizationId: orgId,
+  };
+
+  if (statusFilter !== "all") {
+    mongoQuery.status = statusFilter;
+  }
+
+  if (archiveFilter === "active") {
+    mongoQuery.archivedAt = null;
+  } else if (archiveFilter === "archived") {
+    mongoQuery.archivedAt = { $ne: null };
+  }
+
+  if (
+    filter?.projectId !== undefined &&
+    filter.projectId !== null &&
+    filter.projectId !== "" &&
+    filter.projectId !== "all"
+  ) {
+    if (filter.projectId === "none" || filter.projectId === "unassigned") {
+      mongoQuery.projectId = null;
+    } else {
+      const parsedProjId =
+        filter.projectId instanceof ObjectId
+          ? filter.projectId
+          : typeof filter.projectId === "string"
+            ? parseObjectId(filter.projectId.trim())
+            : null;
+      if (!parsedProjId) {
+        throw new TenantValidationError("Invalid projectId filter.");
+      }
+      await requireProjectInOrg(membership, parsedProjId);
+      mongoQuery.projectId = parsedProjId;
+    }
+  }
+
+  if (
+    filter?.participantId !== undefined &&
+    filter.participantId !== null &&
+    filter.participantId !== "" &&
+    filter.participantId !== "all"
+  ) {
+    const uid = validateMemberUserId(filter.participantId);
+    mongoQuery.participantIds = uid;
+  }
+
+  if (filter?.search !== undefined && filter.search !== null) {
+    if (typeof filter.search !== "string") {
+      throw new TenantValidationError("Search query must be a string.");
+    }
+    const trimmedSearch = filter.search.trim();
+    if (trimmedSearch.length > 200) {
+      throw new TenantValidationError(
+        "Search query must be at most 200 characters.",
+      );
+    }
+    if (trimmedSearch.length > 0) {
+      const escaped = escapeMongoRegex(trimmedSearch);
+      const regex = { $regex: escaped, $options: "i" };
+      mongoQuery.$or = [
+        { title: regex },
+        { description: regex },
+        { notes: regex },
+        { "discussionPoints.content": regex },
+        { "decisions.title": regex },
+      ];
+    }
+  }
+
+  const { meetings } = await getCollections();
+  const skip = (page - 1) * limit;
+
+  const [totalCount, docs] = await Promise.all([
+    meetings.countDocuments(mongoQuery),
+    meetings
+      .find(mongoQuery)
+      .sort({ meetingDate: -1, createdAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray(),
+  ]);
+
+  const enriched = await enrichMeetingDocs(orgId, docs);
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+
+  return {
+    meetings: enriched,
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    },
+  };
+}
+
+export async function getMeetingById(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  const { meetings } = await getCollections();
+  const doc = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!doc) {
+    return null;
+  }
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [doc]);
+  return enriched;
+}
+
+export type UpdateMeetingInput = {
+  title?: string;
+  meetingDate?: Date | string;
+  description?: string | null;
+  projectId?: ObjectId | string | null;
+  status?: MeetingStatus;
+  participantIds?: UserId[];
+  notes?: string | null;
+  discussionPoints?: unknown[];
+  decisions?: unknown[];
+};
+
+export async function updateMeeting(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  input: UpdateMeetingInput,
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError(
+      "Meeting update input must be a plain object.",
+    );
+  }
+
+  const hasTitle = input.title !== undefined;
+  const hasMeetingDate = input.meetingDate !== undefined;
+  const hasDescription = input.description !== undefined;
+  const hasProjectId = input.projectId !== undefined;
+  const hasStatus = input.status !== undefined;
+  const hasParticipantIds = input.participantIds !== undefined;
+  const hasNotes = input.notes !== undefined;
+  const hasDiscussionPoints = input.discussionPoints !== undefined;
+  const hasDecisions = input.decisions !== undefined;
+
+  if (
+    !hasTitle &&
+    !hasMeetingDate &&
+    !hasDescription &&
+    !hasProjectId &&
+    !hasStatus &&
+    !hasParticipantIds &&
+    !hasNotes &&
+    !hasDiscussionPoints &&
+    !hasDecisions
+  ) {
+    throw new TenantValidationError(
+      "At least one meeting field must be provided for update.",
+    );
+  }
+
+  const isManager = isManagerRole(membership.role);
+  const hasManagerOnlyFields =
+    hasTitle ||
+    hasMeetingDate ||
+    hasDescription ||
+    hasProjectId ||
+    hasStatus ||
+    hasParticipantIds;
+
+  if (hasManagerOnlyFields && !isManager) {
+    throw new TenantAccessError(
+      "Only admins and managers can update meeting details or participants.",
+    );
+  }
+
+  const { meetings, activities, organizations } = await getCollections();
+  const existing = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!existing) {
+    return null;
+  }
+
+  if (!isManager) {
+    const isParticipantOrCreator =
+      existing.createdBy === membership.userId ||
+      (existing.participantIds ?? []).includes(membership.userId);
+    if (!isParticipantOrCreator) {
+      throw new TenantAccessError(
+        "Only admins, managers, and meeting participants can update meeting notes and decisions.",
+      );
+    }
+  }
+
+  if (existing.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_MODIFICATION_MESSAGE);
+  }
+
+  const now = new Date();
+  const updates: Partial<MeetingDoc> & { updatedAt: Date } = {
+    updatedAt: now,
+  };
+  const changes: ActivityFieldChange[] = [];
+
+  if (hasTitle) {
+    const newTitle = validateMeetingTitle(input.title);
+    if (newTitle !== existing.title) {
+      updates.title = newTitle;
+      changes.push({
+        field: "title",
+        before: existing.title,
+        after: newTitle,
+      });
+    }
+  }
+
+  if (hasMeetingDate) {
+    const newDate = validateMeetingDate(input.meetingDate);
+    if (newDate.getTime() !== existing.meetingDate.getTime()) {
+      updates.meetingDate = newDate;
+      changes.push({
+        field: "meetingDate",
+        before: existing.meetingDate.toISOString(),
+        after: newDate.toISOString(),
+      });
+    }
+  }
+
+  if (hasDescription) {
+    const newDesc = validateMeetingDescription(input.description);
+    if (newDesc !== (existing.description ?? null)) {
+      updates.description = newDesc;
+      changes.push({
+        field: "description",
+        before: existing.description ?? null,
+        after: newDesc,
+      });
+    }
+  }
+
+  if (hasProjectId) {
+    let targetProjId: ObjectId | null = null;
+    if (input.projectId !== null && input.projectId !== "") {
+      const parsedProjId =
+        input.projectId instanceof ObjectId
+          ? input.projectId
+          : typeof input.projectId === "string"
+            ? parseObjectId(input.projectId.trim())
+            : null;
+      if (!parsedProjId) {
+        throw new TenantValidationError("Invalid projectId.");
+      }
+      const proj = await requireProjectInOrg(membership, parsedProjId);
+      targetProjId = proj._id;
+    }
+    if (!sameNullableObjectId(targetProjId, existing.projectId ?? null)) {
+      updates.projectId = targetProjId;
+      changes.push({
+        field: "projectId",
+        before: existing.projectId ? existing.projectId.toHexString() : null,
+        after: targetProjId ? targetProjId.toHexString() : null,
+      });
+    }
+  }
+
+  if (hasStatus) {
+    const newStatus = validateMeetingStatus(input.status);
+    if (newStatus !== existing.status) {
+      updates.status = newStatus;
+      changes.push({
+        field: "status",
+        before: existing.status,
+        after: newStatus,
+      });
+    }
+  }
+
+  if (hasParticipantIds) {
+    const newParticipants = await validateParticipantUserIdsInOrg(
+      membership,
+      input.participantIds,
+    );
+    updates.participantIds = newParticipants;
+  }
+
+  let notesOrPointsChanged = false;
+  if (hasNotes) {
+    const newNotes = validateMeetingNotes(input.notes);
+    if (newNotes !== (existing.notes ?? null)) {
+      updates.notes = newNotes;
+      notesOrPointsChanged = true;
+      changes.push({
+        field: "notes",
+        before: existing.notes ? "Updated" : null,
+        after: newNotes ? "Updated" : null,
+      });
+    }
+  }
+
+  if (hasDiscussionPoints) {
+    updates.discussionPoints = parseDiscussionPointsInput(
+      input.discussionPoints,
+      membership.userId,
+      now,
+      existing.discussionPoints,
+    );
+    notesOrPointsChanged = true;
+  }
+
+  let decisionsChanged = false;
+  if (hasDecisions) {
+    updates.decisions = parseDecisionsInput(
+      input.decisions,
+      membership.userId,
+      now,
+      existing.decisions,
+    );
+    decisionsChanged = true;
+  }
+
+  const effectiveTitle = updates.title ?? existing.title;
+  const effectiveProjectId =
+    updates.projectId !== undefined ? updates.projectId : existing.projectId;
+
+  let eventType: ActivityEventType = "meeting.updated";
+  let summary = `Updated meeting "${effectiveTitle}"`;
+  if (!hasManagerOnlyFields && decisionsChanged && !notesOrPointsChanged) {
+    eventType = "meeting.decision_recorded";
+    summary = `Updated decisions for meeting "${effectiveTitle}"`;
+  } else if (!hasManagerOnlyFields && notesOrPointsChanged) {
+    eventType = "meeting.notes_updated";
+    summary = `Updated notes for meeting "${effectiveTitle}"`;
+  }
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: effectiveProjectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType,
+    targetType: "meeting",
+    targetId: existing._id,
+    summary,
+    changes,
+    metadata: {
+      meetingTitle: effectiveTitle,
+    },
+    createdAt: now,
+  });
+
+  const updatedDoc = await runInTransactionOrFallback<MeetingDoc | null>(
+    async (session) => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        { $set: updates },
+        { returnDocument: "after", session },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        { $set: updates },
+        { returnDocument: "after" },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc);
+      }
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    return null;
+  }
+
+  if (hasParticipantIds && Array.isArray(updates.participantIds)) {
+    const existingParticipants = Array.isArray(existing.participantIds)
+      ? existing.participantIds
+      : [];
+    const newlyAdded = (updates.participantIds as string[]).filter(
+      (p) => !existingParticipants.includes(p) && p !== membership.userId,
+    );
+    if (newlyAdded.length > 0) {
+      const organization = await organizations.findOne({
+        _id: membership.organizationId,
+      });
+      if (organization) {
+        const meetingDateStr = updatedDoc.meetingDate
+          ? ` scheduled for ${updatedDoc.meetingDate.toISOString().slice(0, 10)}`
+          : "";
+        for (const participantId of newlyAdded) {
+          await createNotificationSafe({
+            organizationId: membership.organizationId,
+            recipientId: participantId,
+            type: "meeting.participant_added",
+            title: `Added to meeting: ${effectiveTitle}`,
+            message: `You were added as a participant to "${effectiveTitle}"${meetingDateStr}.`,
+            url: `/dashboard/${organization.slug}/meetings/${existing._id}`,
+            entityType: "meeting",
+            entityId: existing._id,
+            projectId: effectiveProjectId ?? null,
+            actorId: membership.userId,
+            dedupeKey: `meeting.participant_added:${existing._id.toHexString()}:${participantId}:${now.getTime()}`,
+          });
+        }
+      }
+    }
+  }
+
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return enriched;
+}
+
+export async function archiveMeeting(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  options?: { archived?: boolean },
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+
+  const targetArchived =
+    options?.archived === undefined ? true : Boolean(options.archived);
+
+  const { meetings, activities } = await getCollections();
+  const existing = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const isCurrentlyArchived = existing.archivedAt !== null;
+  if (isCurrentlyArchived === targetArchived) {
+    const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+      existing,
+    ]);
+    return enriched;
+  }
+
+  const now = new Date();
+  const newArchivedAt = targetArchived ? now : null;
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: existing.projectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType: targetArchived ? "meeting.archived" : "meeting.unarchived",
+    targetType: "meeting",
+    targetId: existing._id,
+    summary: targetArchived
+      ? `Archived meeting "${existing.title}"`
+      : `Unarchived meeting "${existing.title}"`,
+    changes: [
+      {
+        field: "archived",
+        before: isCurrentlyArchived,
+        after: targetArchived,
+      },
+    ],
+    metadata: {
+      meetingTitle: existing.title,
+    },
+    createdAt: now,
+  });
+
+  const updatedDoc = await runInTransactionOrFallback<MeetingDoc | null>(
+    async (session) => {
+      const updated = await meetings.findOneAndUpdate(
+        { _id: existing._id, organizationId: membership.organizationId },
+        { $set: { archivedAt: newArchivedAt, updatedAt: now } },
+        { returnDocument: "after", session },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await meetings.findOneAndUpdate(
+        { _id: existing._id, organizationId: membership.organizationId },
+        { $set: { archivedAt: newArchivedAt, updatedAt: now } },
+        { returnDocument: "after" },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc);
+      }
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    return null;
+  }
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return enriched;
+}
+
+export async function addMeetingParticipant(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  rawUserId: unknown,
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  const participantUserId = validateMemberUserId(rawUserId);
+
+  const { meetings, memberships, activities, organizations } =
+    await getCollections();
+  const existing = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!existing) {
+    return null;
+  }
+  if (existing.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_MODIFICATION_MESSAGE);
+  }
+
+  const targetMember = await memberships.findOne({
+    organizationId: membership.organizationId,
+    userId: participantUserId,
+  });
+  if (!targetMember) {
+    throw new TenantValidationError(
+      "Participant is not a member of this organization.",
+    );
+  }
+
+  const currentParticipants = Array.isArray(existing.participantIds)
+    ? existing.participantIds
+    : [];
+  if (currentParticipants.includes(participantUserId)) {
+    const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+      existing,
+    ]);
+    return enriched;
+  }
+
+  const now = new Date();
+  const nextParticipants = [...currentParticipants, participantUserId];
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: existing.projectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType: "meeting.participant_added",
+    targetType: "meeting",
+    targetId: existing._id,
+    summary: `Added participant to meeting "${existing.title}"`,
+    changes: [
+      {
+        field: "participantId",
+        before: null,
+        after: participantUserId,
+      },
+    ],
+    metadata: {
+      meetingTitle: existing.title,
+      participantUserId,
+    },
+    createdAt: now,
+  });
+
+  const updatedDoc = await runInTransactionOrFallback<MeetingDoc | null>(
+    async (session) => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        { $set: { participantIds: nextParticipants, updatedAt: now } },
+        { returnDocument: "after", session },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        { $set: { participantIds: nextParticipants, updatedAt: now } },
+        { returnDocument: "after" },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc);
+      }
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    return null;
+  }
+
+  const organization = await organizations.findOne({
+    _id: membership.organizationId,
+  });
+  if (organization && participantUserId !== membership.userId) {
+    const meetingDateStr = existing.meetingDate
+      ? ` scheduled for ${existing.meetingDate.toISOString().slice(0, 10)}`
+      : "";
+    await createNotificationSafe({
+      organizationId: membership.organizationId,
+      recipientId: participantUserId,
+      type: "meeting.participant_added",
+      title: `Added to meeting: ${existing.title}`,
+      message: `You were added as a participant to "${existing.title}"${meetingDateStr}.`,
+      url: `/dashboard/${organization.slug}/meetings/${existing._id}`,
+      entityType: "meeting",
+      entityId: existing._id,
+      projectId: existing.projectId ?? null,
+      actorId: membership.userId,
+      dedupeKey: `meeting.participant_added:${existing._id.toHexString()}:${participantUserId}`,
+    });
+  }
+
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return enriched;
+}
+
+export async function removeMeetingParticipant(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  rawUserId: unknown,
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  const participantUserId = validateMemberUserId(rawUserId);
+
+  const { meetings, activities } = await getCollections();
+  const existing = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!existing) {
+    return null;
+  }
+  if (existing.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_MODIFICATION_MESSAGE);
+  }
+
+  const currentParticipants = Array.isArray(existing.participantIds)
+    ? existing.participantIds
+    : [];
+  if (!currentParticipants.includes(participantUserId)) {
+    throw new TenantValidationError(
+      "Specified user is not a participant of this meeting.",
+    );
+  }
+
+  const now = new Date();
+  const nextParticipants = currentParticipants.filter(
+    (uid) => uid !== participantUserId,
+  );
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: existing.projectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType: "meeting.participant_removed",
+    targetType: "meeting",
+    targetId: existing._id,
+    summary: `Removed participant from meeting "${existing.title}"`,
+    changes: [
+      {
+        field: "participantId",
+        before: participantUserId,
+        after: null,
+      },
+    ],
+    metadata: {
+      meetingTitle: existing.title,
+      participantUserId,
+    },
+    createdAt: now,
+  });
+
+  const updatedDoc = await runInTransactionOrFallback<MeetingDoc | null>(
+    async (session) => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        { $set: { participantIds: nextParticipants, updatedAt: now } },
+        { returnDocument: "after", session },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        { $set: { participantIds: nextParticipants, updatedAt: now } },
+        { returnDocument: "after" },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc);
+      }
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    return null;
+  }
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return enriched;
+}
+
+export type MutateMeetingNotesAndDecisionsInput = {
+  notes?: string | null;
+  discussionPoints?: unknown[];
+  decisions?: unknown[];
+  addDiscussionPoint?: { content: string } | string;
+  updateDiscussionPoint?: { id: string; content: string };
+  removeDiscussionPointId?: string;
+  addDecision?: { title: string; description?: string | null } | string;
+  updateDecision?: { id: string; title?: string; description?: string | null };
+  removeDecisionId?: string;
+};
+
+export async function mutateMeetingNotesAndDecisions(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  input: MutateMeetingNotesAndDecisionsInput,
+  requestHeaders?: Headers,
+): Promise<MeetingEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError("Input must be a plain object.");
+  }
+
+  const { meetings, activities } = await getCollections();
+  const existing = await meetings.findOne({
+    _id: meetingId,
+    organizationId: membership.organizationId,
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const isManager = isManagerRole(membership.role);
+  const isParticipantOrCreator =
+    existing.createdBy === membership.userId ||
+    (existing.participantIds ?? []).includes(membership.userId);
+  if (!isManager && !isParticipantOrCreator) {
+    throw new TenantAccessError(
+      "Only admins, managers, and meeting participants can update meeting notes and decisions.",
+    );
+  }
+
+  if (existing.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_MODIFICATION_MESSAGE);
+  }
+
+  const now = new Date();
+  let nextNotes = existing.notes ?? null;
+  let nextPoints = [...(existing.discussionPoints ?? [])];
+  let nextDecisions = [...(existing.decisions ?? [])];
+
+  let touchedNotesOrPoints = false;
+  let touchedDecisions = false;
+  const changes: ActivityFieldChange[] = [];
+
+  if (input.notes !== undefined) {
+    nextNotes = validateMeetingNotes(input.notes);
+    touchedNotesOrPoints = true;
+    changes.push({
+      field: "notes",
+      before: existing.notes ? "Updated" : null,
+      after: nextNotes ? "Updated" : null,
+    });
+  }
+
+  if (input.discussionPoints !== undefined) {
+    nextPoints = parseDiscussionPointsInput(
+      input.discussionPoints,
+      membership.userId,
+      now,
+      existing.discussionPoints,
+    );
+    touchedNotesOrPoints = true;
+  }
+
+  if (input.addDiscussionPoint !== undefined) {
+    const rawPt = input.addDiscussionPoint;
+    const content =
+      typeof rawPt === "string"
+        ? validateDiscussionPointContent(rawPt)
+        : isPlainObject(rawPt)
+          ? validateDiscussionPointContent(rawPt.content)
+          : (() => {
+              throw new TenantValidationError(
+                "addDiscussionPoint must be a string or an object with content.",
+              );
+            })();
+    nextPoints.push({
+      id: new ObjectId().toHexString(),
+      content,
+      authorId: membership.userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    touchedNotesOrPoints = true;
+    changes.push({
+      field: "discussionPoint",
+      before: null,
+      after: content,
+    });
+  }
+
+  if (input.updateDiscussionPoint !== undefined) {
+    if (!isPlainObject(input.updateDiscussionPoint)) {
+      throw new TenantValidationError(
+        "updateDiscussionPoint must be an object with id and content.",
+      );
+    }
+    const targetId =
+      typeof input.updateDiscussionPoint.id === "string"
+        ? input.updateDiscussionPoint.id.trim()
+        : "";
+    const content = validateDiscussionPointContent(
+      input.updateDiscussionPoint.content,
+    );
+    const idx = nextPoints.findIndex((p) => p.id === targetId);
+    if (idx === -1) {
+      throw new TenantValidationError("Discussion point not found.");
+    }
+    const prev = nextPoints[idx];
+    nextPoints[idx] = {
+      ...prev,
+      content,
+      updatedAt: now,
+    };
+    touchedNotesOrPoints = true;
+    changes.push({
+      field: "discussionPoint",
+      before: prev.content,
+      after: content,
+    });
+  }
+
+  if (input.removeDiscussionPointId !== undefined) {
+    if (typeof input.removeDiscussionPointId !== "string") {
+      throw new TenantValidationError("removeDiscussionPointId must be a string.");
+    }
+    const targetId = input.removeDiscussionPointId.trim();
+    const prev = nextPoints.find((p) => p.id === targetId);
+    if (!prev) {
+      throw new TenantValidationError("Discussion point not found.");
+    }
+    nextPoints = nextPoints.filter((p) => p.id !== targetId);
+    touchedNotesOrPoints = true;
+    changes.push({
+      field: "discussionPoint",
+      before: prev.content,
+      after: null,
+    });
+  }
+
+  if (input.decisions !== undefined) {
+    nextDecisions = parseDecisionsInput(
+      input.decisions,
+      membership.userId,
+      now,
+      existing.decisions,
+    );
+    touchedDecisions = true;
+  }
+
+  if (input.addDecision !== undefined) {
+    const rawDec = input.addDecision;
+    let title: string;
+    let description: string | null = null;
+    if (typeof rawDec === "string") {
+      title = validateDecisionTitle(rawDec);
+    } else if (isPlainObject(rawDec)) {
+      title = validateDecisionTitle(rawDec.title);
+      description = validateDecisionDescription(rawDec.description);
+    } else {
+      throw new TenantValidationError(
+        "addDecision must be a string or an object with title.",
+      );
+    }
+    nextDecisions.push({
+      id: new ObjectId().toHexString(),
+      title,
+      description,
+      decidedBy: membership.userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    touchedDecisions = true;
+    changes.push({
+      field: "meetingDecision",
+      before: null,
+      after: title,
+    });
+  }
+
+  if (input.updateDecision !== undefined) {
+    if (!isPlainObject(input.updateDecision)) {
+      throw new TenantValidationError(
+        "updateDecision must be an object with id.",
+      );
+    }
+    const targetId =
+      typeof input.updateDecision.id === "string"
+        ? input.updateDecision.id.trim()
+        : "";
+    const idx = nextDecisions.findIndex((d) => d.id === targetId);
+    if (idx === -1) {
+      throw new TenantValidationError("Decision not found.");
+    }
+    const prev = nextDecisions[idx];
+    const nextTitle =
+      input.updateDecision.title !== undefined
+        ? validateDecisionTitle(input.updateDecision.title)
+        : prev.title;
+    const nextDesc =
+      input.updateDecision.description !== undefined
+        ? validateDecisionDescription(input.updateDecision.description)
+        : (prev.description ?? null);
+    nextDecisions[idx] = {
+      ...prev,
+      title: nextTitle,
+      description: nextDesc,
+      updatedAt: now,
+    };
+    touchedDecisions = true;
+    changes.push({
+      field: "meetingDecision",
+      before: prev.title,
+      after: nextTitle,
+    });
+  }
+
+  if (input.removeDecisionId !== undefined) {
+    if (typeof input.removeDecisionId !== "string") {
+      throw new TenantValidationError("removeDecisionId must be a string.");
+    }
+    const targetId = input.removeDecisionId.trim();
+    const prev = nextDecisions.find((d) => d.id === targetId);
+    if (!prev) {
+      throw new TenantValidationError("Decision not found.");
+    }
+    nextDecisions = nextDecisions.filter((d) => d.id !== targetId);
+    touchedDecisions = true;
+    changes.push({
+      field: "meetingDecision",
+      before: prev.title,
+      after: null,
+    });
+  }
+
+  if (!touchedNotesOrPoints && !touchedDecisions) {
+    throw new TenantValidationError(
+      "At least one notes, discussion point, or decision update must be supplied.",
+    );
+  }
+
+  const eventType: ActivityEventType =
+    touchedDecisions && !touchedNotesOrPoints
+      ? "meeting.decision_recorded"
+      : "meeting.notes_updated";
+  const summary =
+    eventType === "meeting.decision_recorded"
+      ? `Updated decisions in meeting "${existing.title}"`
+      : `Updated notes and discussion points in meeting "${existing.title}"`;
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: existing.projectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType,
+    targetType: "meeting",
+    targetId: existing._id,
+    summary,
+    changes,
+    metadata: {
+      meetingTitle: existing.title,
+    },
+    createdAt: now,
+  });
+
+  const updatedDoc = await runInTransactionOrFallback<MeetingDoc | null>(
+    async (session) => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        {
+          $set: {
+            notes: nextNotes,
+            discussionPoints: nextPoints,
+            decisions: nextDecisions,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: "after", session },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await meetings.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          archivedAt: null,
+        },
+        {
+          $set: {
+            notes: nextNotes,
+            discussionPoints: nextPoints,
+            decisions: nextDecisions,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: "after" },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc);
+      }
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    return null;
+  }
+  const [enriched] = await enrichMeetingDocs(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return enriched;
+}
+
+export type ListMeetingActionItemsFilter = {
+  status?: unknown;
+  ownerId?: unknown;
+};
+
+export async function listMeetingActionItems(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  filter?: ListMeetingActionItemsFilter,
+  requestHeaders?: Headers,
+): Promise<MeetingActionItemEnriched[]> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const meeting = await requireMeetingInOrg(membership, meetingId);
+
+  const statusFilter = validateActionItemStatusFilter(filter?.status);
+  const mongoQuery: Record<string, unknown> = {
+    organizationId: membership.organizationId,
+    meetingId: meeting._id,
+  };
+
+  if (statusFilter !== "all") {
+    mongoQuery.status = statusFilter;
+  }
+
+  if (
+    filter?.ownerId !== undefined &&
+    filter.ownerId !== "" &&
+    filter.ownerId !== "all"
+  ) {
+    if (filter.ownerId === null || filter.ownerId === "unassigned" || filter.ownerId === "none") {
+      mongoQuery.ownerId = null;
+    } else {
+      mongoQuery.ownerId = validateMemberUserId(filter.ownerId);
+    }
+  }
+
+  const { meetingActionItems } = await getCollections();
+  const docs = await meetingActionItems
+    .find(mongoQuery)
+    .sort({ createdAt: 1, _id: 1 })
+    .toArray();
+
+  return enrichActionItemDocs(membership.organizationId, docs);
+}
+
+export type CreateMeetingActionItemInput = {
+  title: string;
+  description?: string | null;
+  ownerId?: UserId | null;
+  targetDate?: Date | string | null;
+  status?: ActionItemStatus;
+};
+
+export async function createMeetingActionItem(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  input: CreateMeetingActionItemInput,
+  requestHeaders?: Headers,
+): Promise<MeetingActionItemEnriched> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError("Action item input must be a plain object.");
+  }
+
+  const meeting = await requireMeetingInOrg(membership, meetingId);
+  if (meeting.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_ACTION_ITEM_MESSAGE);
+  }
+
+  const isManager = isManagerRole(membership.role);
+  const title = validateActionItemTitle(input.title);
+  const description = validateActionItemDescription(input.description);
+  const targetDate = validateActionItemTargetDate(input.targetDate);
+  const status =
+    input.status !== undefined
+      ? validateActionItemStatus(input.status)
+      : "open";
+
+  let ownerId: UserId | null = null;
+  if (
+    input.ownerId !== undefined &&
+    input.ownerId !== null &&
+    input.ownerId !== ""
+  ) {
+    ownerId = validateMemberUserId(input.ownerId);
+    await requireAssigneeInOrg(membership, ownerId);
+    if (!isManager && ownerId !== membership.userId) {
+      throw new TenantAccessError(
+        "Only admins and managers can assign action items to other members.",
+      );
+    }
+  }
+
+  const now = new Date();
+  const completedAt = status === "completed" ? now : null;
+
+  const doc: MeetingActionItemDoc = {
+    _id: new ObjectId(),
+    organizationId: membership.organizationId,
+    meetingId: meeting._id,
+    title,
+    description,
+    ownerId,
+    targetDate,
+    status,
+    createdBy: membership.userId,
+    completedAt,
+    linkedTaskId: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: meeting.projectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType: "action_item.created",
+    targetType: "action_item",
+    targetId: doc._id,
+    summary: `Created action item "${doc.title}" in meeting "${meeting.title}"`,
+    changes: [
+      { field: "title", before: null, after: doc.title },
+      { field: "status", before: null, after: doc.status },
+      { field: "ownerId", before: null, after: doc.ownerId },
+      ...(doc.targetDate !== null
+        ? [
+            {
+              field: "targetDate",
+              before: null,
+              after: doc.targetDate.toISOString(),
+            },
+          ]
+        : []),
+    ],
+    metadata: {
+      meetingId: meeting._id.toHexString(),
+      meetingTitle: meeting.title,
+      actionItemTitle: doc.title,
+    },
+    createdAt: now,
+  });
+
+  const { meetingActionItems, activities, organizations } =
+    await getCollections();
+  await runInTransactionOrFallback(
+    async (session) => {
+      await meetingActionItems.insertOne(doc, { session });
+      await activities.insertOne(activityDoc, { session });
+    },
+    async () => {
+      await meetingActionItems.insertOne(doc);
+      await activities.insertOne(activityDoc);
+    },
+  );
+
+  const organization = await organizations.findOne({
+    _id: membership.organizationId,
+  });
+  if (
+    organization &&
+    doc.ownerId !== null &&
+    doc.ownerId !== membership.userId
+  ) {
+    const targetDateStr = doc.targetDate
+      ? ` (due ${doc.targetDate.toISOString().slice(0, 10)})`
+      : "";
+    await createNotificationSafe({
+      organizationId: membership.organizationId,
+      recipientId: doc.ownerId,
+      type: "action_item.assigned",
+      title: `Action item assigned: ${doc.title}`,
+      message: `You were assigned the action item "${doc.title}" from meeting "${meeting.title}"${targetDateStr}.`,
+      url: `/dashboard/${organization.slug}/meetings/${meeting._id}`,
+      entityType: "action_item",
+      entityId: doc._id,
+      projectId: meeting.projectId ?? null,
+      actorId: membership.userId,
+      dedupeKey: `action_item.assigned:${doc._id.toHexString()}:${doc.ownerId}`,
+    });
+  }
+
+  const [enriched] = await enrichActionItemDocs(membership.organizationId, [
+    doc,
+  ]);
+  return enriched;
+}
+
+export type UpdateMeetingActionItemInput = {
+  title?: string;
+  description?: string | null;
+  ownerId?: UserId | null;
+  targetDate?: Date | string | null;
+  status?: ActionItemStatus;
+};
+
+export async function updateMeetingActionItem(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  actionItemId: ObjectId,
+  input: UpdateMeetingActionItemInput,
+  requestHeaders?: Headers,
+): Promise<MeetingActionItemEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  requireObjectId(actionItemId, "actionItemId");
+  if (!isPlainObject(input)) {
+    throw new TenantValidationError(
+      "Action item update input must be a plain object.",
+    );
+  }
+
+  const hasTitle = input.title !== undefined;
+  const hasDescription = input.description !== undefined;
+  const hasOwnerId = input.ownerId !== undefined;
+  const hasTargetDate = input.targetDate !== undefined;
+  const hasStatus = input.status !== undefined;
+
+  if (
+    !hasTitle &&
+    !hasDescription &&
+    !hasOwnerId &&
+    !hasTargetDate &&
+    !hasStatus
+  ) {
+    throw new TenantValidationError(
+      "At least one action item field must be provided for update.",
+    );
+  }
+
+  const meeting = await requireMeetingInOrg(membership, meetingId);
+  if (meeting.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_ACTION_ITEM_MESSAGE);
+  }
+
+  const { meetingActionItems, activities, organizations } =
+    await getCollections();
+  const existing = await meetingActionItems.findOne({
+    _id: actionItemId,
+    organizationId: membership.organizationId,
+    meetingId: meeting._id,
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const isManager = isManagerRole(membership.role);
+  if (!isManager) {
+    const canMemberEdit =
+      existing.ownerId === membership.userId ||
+      existing.createdBy === membership.userId ||
+      (meeting.participantIds ?? []).includes(membership.userId);
+    if (!canMemberEdit) {
+      throw new TenantAccessError(
+        "Members can only update action items assigned to them, created by them, or in meetings they participate in.",
+      );
+    }
+  }
+
+  const now = new Date();
+  const updates: Partial<MeetingActionItemDoc> & { updatedAt: Date } = {
+    updatedAt: now,
+  };
+  const changes: ActivityFieldChange[] = [];
+
+  if (hasTitle) {
+    const nextTitle = validateActionItemTitle(input.title);
+    if (nextTitle !== existing.title) {
+      updates.title = nextTitle;
+      changes.push({
+        field: "title",
+        before: existing.title,
+        after: nextTitle,
+      });
+    }
+  }
+
+  if (hasDescription) {
+    const nextDesc = validateActionItemDescription(input.description);
+    if (nextDesc !== (existing.description ?? null)) {
+      updates.description = nextDesc;
+      changes.push({
+        field: "description",
+        before: existing.description ?? null,
+        after: nextDesc,
+      });
+    }
+  }
+
+  if (hasOwnerId) {
+    let nextOwnerId: UserId | null = null;
+    if (input.ownerId !== null && input.ownerId !== "") {
+      nextOwnerId = validateMemberUserId(input.ownerId);
+      await requireAssigneeInOrg(membership, nextOwnerId);
+    }
+    if (nextOwnerId !== (existing.ownerId ?? null)) {
+      if (
+        !isManager &&
+        nextOwnerId !== null &&
+        nextOwnerId !== membership.userId
+      ) {
+        throw new TenantAccessError(
+          "Only admins and managers can assign action items to other members.",
+        );
+      }
+      updates.ownerId = nextOwnerId;
+      changes.push({
+        field: "ownerId",
+        before: existing.ownerId ?? null,
+        after: nextOwnerId,
+      });
+    }
+  }
+
+  if (hasTargetDate) {
+    const nextTargetDate = validateActionItemTargetDate(input.targetDate);
+    const prevTime = existing.targetDate ? existing.targetDate.getTime() : null;
+    const nextTime = nextTargetDate ? nextTargetDate.getTime() : null;
+    if (prevTime !== nextTime) {
+      updates.targetDate = nextTargetDate;
+      changes.push({
+        field: "targetDate",
+        before: existing.targetDate ? existing.targetDate.toISOString() : null,
+        after: nextTargetDate ? nextTargetDate.toISOString() : null,
+      });
+    }
+  }
+
+  let statusChanged = false;
+  if (hasStatus) {
+    const nextStatus = validateActionItemStatus(input.status);
+    if (nextStatus !== existing.status) {
+      updates.status = nextStatus;
+      updates.completedAt = nextStatus === "completed" ? now : null;
+      statusChanged = true;
+      changes.push({
+        field: "status",
+        before: existing.status,
+        after: nextStatus,
+      });
+    }
+  }
+
+  const effectiveTitle = updates.title ?? existing.title;
+  const eventType: ActivityEventType = statusChanged
+    ? "action_item.status_changed"
+    : "action_item.updated";
+  const summary = statusChanged
+    ? `Changed status of action item "${effectiveTitle}" to ${updates.status}`
+    : `Updated action item "${effectiveTitle}"`;
+
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: meeting.projectId ?? null,
+    taskId: null,
+    actorId: membership.userId,
+    eventType,
+    targetType: "action_item",
+    targetId: existing._id,
+    summary,
+    changes,
+    metadata: {
+      meetingId: meeting._id.toHexString(),
+      meetingTitle: meeting.title,
+      actionItemTitle: effectiveTitle,
+    },
+    createdAt: now,
+  });
+
+  const updatedDoc = await runInTransactionOrFallback<MeetingActionItemDoc | null>(
+    async (session) => {
+      const updated = await meetingActionItems.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          meetingId: meeting._id,
+        },
+        { $set: updates },
+        { returnDocument: "after", session },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc, { session });
+      }
+      return updated;
+    },
+    async () => {
+      const updated = await meetingActionItems.findOneAndUpdate(
+        {
+          _id: existing._id,
+          organizationId: membership.organizationId,
+          meetingId: meeting._id,
+        },
+        { $set: updates },
+        { returnDocument: "after" },
+      );
+      if (updated) {
+        await activities.insertOne(activityDoc);
+      }
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    return null;
+  }
+
+  const organization = await organizations.findOne({
+    _id: membership.organizationId,
+  });
+  if (
+    organization &&
+    updates.ownerId !== undefined &&
+    updates.ownerId !== null &&
+    updates.ownerId !== (existing.ownerId ?? null) &&
+    updates.ownerId !== membership.userId
+  ) {
+    const effectiveItemTitle = updates.title ?? existing.title;
+    const effectiveTargetDate =
+      updates.targetDate !== undefined ? updates.targetDate : existing.targetDate;
+    const targetDateStr = effectiveTargetDate
+      ? ` (due ${effectiveTargetDate.toISOString().slice(0, 10)})`
+      : "";
+    await createNotificationSafe({
+      organizationId: membership.organizationId,
+      recipientId: updates.ownerId,
+      type: "action_item.assigned",
+      title: `Action item assigned: ${effectiveItemTitle}`,
+      message: `You were assigned the action item "${effectiveItemTitle}" from meeting "${meeting.title}"${targetDateStr}.`,
+      url: `/dashboard/${organization.slug}/meetings/${meeting._id}`,
+      entityType: "action_item",
+      entityId: existing._id,
+      projectId: meeting.projectId ?? null,
+      actorId: membership.userId,
+      dedupeKey: `action_item.assigned:${existing._id.toHexString()}:${updates.ownerId}:${updates.updatedAt.getTime()}`,
+    });
+  }
+
+  const [enriched] = await enrichActionItemDocs(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return enriched;
+}
+
+export async function getMeetingActionItemById(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  actionItemId: ObjectId,
+  requestHeaders?: Headers,
+): Promise<MeetingActionItemEnriched | null> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  requireObjectId(actionItemId, "actionItemId");
+
+  const meeting = await requireMeetingInOrg(membership, meetingId);
+  const { meetingActionItems } = await getCollections();
+  const doc = await meetingActionItems.findOne({
+    _id: actionItemId,
+    organizationId: membership.organizationId,
+    meetingId: meeting._id,
+  });
+  if (!doc) {
+    return null;
+  }
+  const [enriched] = await enrichActionItemDocs(membership.organizationId, [
+    doc,
+  ]);
+  return enriched;
+}
+
+export type ConvertMeetingActionItemInput = {
+  projectId?: ObjectId | string | null;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+  approvalRequired?: boolean;
+};
+
+export type ConvertMeetingActionItemResult = {
+  actionItem: MeetingActionItemEnriched;
+  task: EnrichedTaskItem;
+  created: boolean;
+};
+
+function parseConversionProjectId(raw: unknown): ObjectId | null {
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  if (raw instanceof ObjectId) {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      return null;
+    }
+    const parsed = parseObjectId(trimmed);
+    if (!parsed) {
+      throw new TenantValidationError("Invalid projectId.");
+    }
+    return parsed;
+  }
+  throw new TenantValidationError("Invalid projectId.");
+}
+
+function buildActionItemTaskCreatedActivityDoc(params: {
+  organizationId: ObjectId;
+  projectId: ObjectId;
+  actorId: UserId;
+  meeting: MeetingDoc;
+  actionItem: MeetingActionItemDoc;
+  taskDoc: TaskDoc;
+  createdAt: Date;
+}): ActivityDoc {
+  const { organizationId, projectId, actorId, meeting, actionItem, taskDoc, createdAt } =
+    params;
+  return buildActivityDoc({
+    organizationId,
+    projectId,
+    taskId: taskDoc._id,
+    actorId,
+    eventType: "task.created",
+    targetType: "task",
+    targetId: taskDoc._id,
+    summary: `Created task "${taskDoc.title}" from meeting action item`,
+    changes: [
+      { field: "title", before: null, after: taskDoc.title },
+      ...(taskDoc.description !== null && taskDoc.description !== undefined
+        ? [{ field: "description", before: null, after: taskDoc.description }]
+        : []),
+      { field: "status", before: null, after: taskDoc.status },
+      { field: "priority", before: null, after: taskDoc.priority },
+      { field: "assigneeId", before: null, after: taskDoc.assigneeId },
+      ...(taskDoc.deadline !== null
+        ? [
+            {
+              field: "deadline",
+              before: null,
+              after: taskDoc.deadline.toISOString(),
+            },
+          ]
+        : []),
+      {
+        field: "approvalRequired",
+        before: null,
+        after: taskDoc.approvalRequired === true,
+      },
+      {
+        field: "sourceMeetingId",
+        before: null,
+        after: meeting._id.toHexString(),
+      },
+      {
+        field: "sourceActionItemId",
+        before: null,
+        after: actionItem._id.toHexString(),
+      },
+    ],
+    metadata: {
+      taskTitle: taskDoc.title,
+      parentTaskId: null,
+      isSubtask: false,
+      sourceMeetingId: meeting._id.toHexString(),
+      sourceMeetingTitle: meeting.title,
+      sourceActionItemId: actionItem._id.toHexString(),
+      sourceActionItemTitle: actionItem.title,
+    },
+    createdAt,
+  });
+}
+
+function buildActionItemConvertedActivityDoc(params: {
+  organizationId: ObjectId;
+  project: ProjectDoc;
+  actorId: UserId;
+  meeting: MeetingDoc;
+  actionItem: MeetingActionItemDoc;
+  taskDoc: TaskDoc;
+  createdAt: Date;
+}): ActivityDoc {
+  const { organizationId, project, actorId, meeting, actionItem, taskDoc, createdAt } =
+    params;
+  return buildActivityDoc({
+    organizationId,
+    projectId: project._id,
+    taskId: taskDoc._id,
+    actorId,
+    eventType: "action_item.converted_to_task",
+    targetType: "action_item",
+    targetId: actionItem._id,
+    summary: `Converted action item "${actionItem.title}" from meeting "${meeting.title}" to task "${taskDoc.title}"`,
+    changes: [
+      {
+        field: "linkedTaskId",
+        before: null,
+        after: taskDoc._id.toHexString(),
+      },
+    ],
+    metadata: {
+      meetingId: meeting._id.toHexString(),
+      meetingTitle: meeting.title,
+      actionItemId: actionItem._id.toHexString(),
+      actionItemTitle: actionItem.title,
+      taskId: taskDoc._id.toHexString(),
+      taskTitle: taskDoc.title,
+      projectId: project._id.toHexString(),
+      projectName: project.name,
+    },
+    createdAt,
+  });
+}
+
+async function recoverExistingConvertedActionItem(params: {
+  organizationId: ObjectId;
+  actorId: UserId;
+  meeting: MeetingDoc;
+  actionItem: MeetingActionItemDoc;
+}): Promise<ConvertMeetingActionItemResult | null> {
+  const { organizationId, actorId, meeting, actionItem } = params;
+  const { meetingActionItems, tasks, projects, activities } = await getCollections();
+
+  const taskOrFilters: Record<string, unknown>[] = [
+    { sourceActionItemId: actionItem._id },
+  ];
+  if (actionItem.linkedTaskId) {
+    taskOrFilters.push({ _id: actionItem.linkedTaskId });
+  }
+
+  const foundTaskRaw = await tasks.findOne({
+    organizationId,
+    $or: taskOrFilters,
+  });
+  if (!foundTaskRaw) {
+    return null;
+  }
+
+  let taskDoc = normalizeTaskDoc(foundTaskRaw);
+  const now = new Date();
+
+  // Repair task back-reference fields if missing from a partial standalone write.
+  if (
+    !taskDoc.sourceMeetingId ||
+    !taskDoc.sourceMeetingId.equals(meeting._id) ||
+    !taskDoc.sourceActionItemId ||
+    !taskDoc.sourceActionItemId.equals(actionItem._id)
+  ) {
+    const repairedTask = await tasks.findOneAndUpdate(
+      { _id: taskDoc._id, organizationId },
+      {
+        $set: {
+          sourceMeetingId: meeting._id,
+          sourceActionItemId: actionItem._id,
+          updatedAt: now,
+        },
+      },
+      { returnDocument: "after" },
+    );
+    if (repairedTask) {
+      taskDoc = normalizeTaskDoc(repairedTask);
+    }
+  }
+
+  // Repair action item forward-reference if missing from a partial standalone write.
+  let currentActionItem = actionItem;
+  if (
+    !currentActionItem.linkedTaskId ||
+    !currentActionItem.linkedTaskId.equals(taskDoc._id)
+  ) {
+    const repairedActionItem = await meetingActionItems.findOneAndUpdate(
+      {
+        _id: actionItem._id,
+        organizationId,
+        meetingId: meeting._id,
+      },
+      {
+        $set: {
+          linkedTaskId: taskDoc._id,
+          updatedAt: now,
+        },
+      },
+      { returnDocument: "after" },
+    );
+    if (repairedActionItem) {
+      currentActionItem = repairedActionItem;
+    } else {
+      currentActionItem = {
+        ...currentActionItem,
+        linkedTaskId: taskDoc._id,
+      };
+    }
+  }
+
+  const project = await projects.findOne({
+    _id: taskDoc.projectId,
+    organizationId,
+  });
+
+  // Ensure both conversion activities exist without duplicating on retry.
+  const [existingTaskCreatedActivity, existingConvertedActivity] =
+    await Promise.all([
+      activities.findOne({
+        organizationId,
+        targetType: "task",
+        targetId: taskDoc._id,
+        eventType: "task.created",
+      }),
+      activities.findOne({
+        organizationId,
+        targetType: "action_item",
+        targetId: currentActionItem._id,
+        eventType: "action_item.converted_to_task",
+      }),
+    ]);
+
+  const missingActivities: ActivityDoc[] = [];
+  if (!existingTaskCreatedActivity) {
+    missingActivities.push(
+      buildActionItemTaskCreatedActivityDoc({
+        organizationId,
+        projectId: taskDoc.projectId,
+        actorId,
+        meeting,
+        actionItem: currentActionItem,
+        taskDoc,
+        createdAt: taskDoc.createdAt ?? now,
+      }),
+    );
+  }
+  if (!existingConvertedActivity && project) {
+    missingActivities.push(
+      buildActionItemConvertedActivityDoc({
+        organizationId,
+        project,
+        actorId,
+        meeting,
+        actionItem: currentActionItem,
+        taskDoc,
+        createdAt: taskDoc.createdAt ?? now,
+      }),
+    );
+  }
+  if (missingActivities.length > 0) {
+    await activities.insertMany(missingActivities);
+  }
+
+  const projectsByHex = new Map<string, ProjectDoc>();
+  if (project) {
+    projectsByHex.set(project._id.toHexString(), project);
+  }
+
+  const [[enrichedActionItem], [enrichedTask]] = await Promise.all([
+    enrichActionItemDocs(organizationId, [currentActionItem]),
+    hydrateEnrichedTasksInternal(organizationId, [taskDoc], projectsByHex),
+  ]);
+
+  return {
+    actionItem: enrichedActionItem,
+    task: enrichedTask,
+    created: false,
+  };
+}
+
+export async function convertMeetingActionItemToTask(
+  organizationId: ObjectId,
+  meetingId: ObjectId,
+  actionItemId: ObjectId,
+  input?: ConvertMeetingActionItemInput,
+  requestHeaders?: Headers,
+): Promise<ConvertMeetingActionItemResult | null> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  requireObjectId(meetingId, "meetingId");
+  requireObjectId(actionItemId, "actionItemId");
+  if (input !== undefined && !isPlainObject(input)) {
+    throw new TenantValidationError(
+      "Action item conversion input must be a plain object.",
+    );
+  }
+
+  const meeting = await requireMeetingInOrg(membership, meetingId);
+  const { meetingActionItems, tasks, activities, organizations } =
+    await getCollections();
+  const existingActionItem = await meetingActionItems.findOne({
+    _id: actionItemId,
+    organizationId: membership.organizationId,
+    meetingId: meeting._id,
+  });
+  if (!existingActionItem) {
+    return null;
+  }
+
+  const isManager = isManagerRole(membership.role);
+  if (!isManager) {
+    const canMemberConvert =
+      existingActionItem.ownerId === membership.userId ||
+      existingActionItem.createdBy === membership.userId ||
+      meeting.createdBy === membership.userId ||
+      (meeting.participantIds ?? []).includes(membership.userId);
+    if (!canMemberConvert) {
+      throw new TenantAccessError(
+        "Members can only convert action items assigned to them, created by them, or in meetings they participate in.",
+      );
+    }
+    if (input?.approvalRequired !== undefined) {
+      throw new TenantAccessError(
+        "Only admins and managers can set or change task approval requirements.",
+      );
+    }
+    if (
+      existingActionItem.ownerId !== null &&
+      existingActionItem.ownerId !== undefined &&
+      existingActionItem.ownerId !== membership.userId
+    ) {
+      throw new TenantAccessError(
+        "Only admins and managers can assign tasks to other members.",
+      );
+    }
+  }
+
+  const requestedProjectId = parseConversionProjectId(input?.projectId);
+  if (requestedProjectId !== null) {
+    await requireProjectInOrg(membership, requestedProjectId);
+  }
+  if (
+    meeting.projectId !== null &&
+    requestedProjectId !== null &&
+    !requestedProjectId.equals(meeting.projectId)
+  ) {
+    throw new TenantValidationError(
+      "Cannot override the project of a meeting that is already associated with a project.",
+    );
+  }
+
+  // Idempotent pre-check & recovery: if a linked task already exists for this
+  // action item, repair any missing reference/activity and return it without
+  // creating a duplicate task.
+  const existingResult = await recoverExistingConvertedActionItem({
+    organizationId: membership.organizationId,
+    actorId: membership.userId,
+    meeting,
+    actionItem: existingActionItem,
+  });
+  if (existingResult) {
+    return existingResult;
+  }
+
+  if (meeting.archivedAt !== null) {
+    throw new TenantValidationError(ARCHIVED_MEETING_ACTION_ITEM_MESSAGE);
+  }
+
+  const targetProjectId = meeting.projectId ?? requestedProjectId;
+  if (targetProjectId === null) {
+    throw new TenantValidationError(
+      "A projectId is required to convert an action item when the meeting is not associated with a project.",
+    );
+  }
+
+  const project = await requireProjectInOrg(membership, targetProjectId);
+  if (project.status === "archived") {
+    throw new TenantValidationError(
+      "Cannot create tasks in an archived project.",
+    );
+  }
+
+  const title = validateTaskTitle(existingActionItem.title);
+  const description = validateTaskDescription(
+    existingActionItem.description ?? null,
+  );
+  const status =
+    input?.status !== undefined ? validateTaskStatus(input.status) : "todo";
+  const priority =
+    input?.priority !== undefined
+      ? validateTaskPriority(input.priority)
+      : "medium";
+  const approvalRequired =
+    input?.approvalRequired !== undefined
+      ? validateTaskApprovalRequired(input.approvalRequired)
+      : true;
+
+  if (status === "done" && approvalRequired) {
+    throw new TenantValidationError(
+      TASK_APPROVAL_REQUIRED_NO_DELIVERABLE_MESSAGE,
+    );
+  }
+
+  const deadline = existingActionItem.targetDate
+    ? validateTaskDeadline(existingActionItem.targetDate)
+    : null;
+
+  let assigneeId: UserId | null = null;
+  if (
+    existingActionItem.ownerId !== null &&
+    existingActionItem.ownerId !== undefined
+  ) {
+    assigneeId = validateAssigneeId(existingActionItem.ownerId);
+    if (assigneeId !== null) {
+      await requireAssigneeInOrg(membership, assigneeId);
+    }
+  }
+
+  const now = new Date();
+  const taskDoc: TaskDoc = {
+    _id: new ObjectId(),
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    parentTaskId: null,
+    title,
+    description,
+    status,
+    priority,
+    assigneeId,
+    createdBy: membership.userId,
+    deadline,
+    approvalRequired,
+    sourceMeetingId: meeting._id,
+    sourceActionItemId: existingActionItem._id,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const taskCreatedActivityDoc = buildActionItemTaskCreatedActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    actorId: membership.userId,
+    meeting,
+    actionItem: existingActionItem,
+    taskDoc,
+    createdAt: now,
+  });
+
+  const convertedActivityDoc = buildActionItemConvertedActivityDoc({
+    organizationId: membership.organizationId,
+    project,
+    actorId: membership.userId,
+    meeting,
+    actionItem: existingActionItem,
+    taskDoc,
+    createdAt: now,
+  });
+
+  let updatedActionItem: MeetingActionItemDoc | null = null;
+  try {
+    updatedActionItem = await runInTransactionOrFallback<MeetingActionItemDoc | null>(
+      async (session) => {
+        const claimed = await meetingActionItems.findOneAndUpdate(
+          {
+            _id: existingActionItem._id,
+            organizationId: membership.organizationId,
+            meetingId: meeting._id,
+            $or: [
+              { linkedTaskId: null },
+              { linkedTaskId: { $exists: false } },
+            ],
+          },
+          {
+            $set: {
+              linkedTaskId: taskDoc._id,
+              updatedAt: now,
+            },
+          },
+          { returnDocument: "after", session },
+        );
+        if (!claimed) {
+          return null;
+        }
+        await tasks.insertOne(taskDoc, { session });
+        await activities.insertMany(
+          [taskCreatedActivityDoc, convertedActivityDoc],
+          { session },
+        );
+        return claimed;
+      },
+      async () => {
+        await tasks.insertOne(taskDoc);
+        const claimed = await meetingActionItems.findOneAndUpdate(
+          {
+            _id: existingActionItem._id,
+            organizationId: membership.organizationId,
+            meetingId: meeting._id,
+          },
+          {
+            $set: {
+              linkedTaskId: taskDoc._id,
+              updatedAt: now,
+            },
+          },
+          { returnDocument: "after" },
+        );
+        await activities.insertMany([
+          taskCreatedActivityDoc,
+          convertedActivityDoc,
+        ]);
+        return claimed;
+      },
+    );
+  } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      const recovered = await recoverExistingConvertedActionItem({
+        organizationId: membership.organizationId,
+        actorId: membership.userId,
+        meeting,
+        actionItem: existingActionItem,
+      });
+      if (recovered) {
+        return recovered;
+      }
+    }
+    throw err;
+  }
+
+  if (!updatedActionItem) {
+    const recovered = await recoverExistingConvertedActionItem({
+      organizationId: membership.organizationId,
+      actorId: membership.userId,
+      meeting,
+      actionItem: existingActionItem,
+    });
+    if (recovered) {
+      return recovered;
+    }
+    return null;
+  }
+
+  const projectsByHex = new Map<string, ProjectDoc>([
+    [project._id.toHexString(), project],
+  ]);
+
+  if (taskDoc.assigneeId !== null && taskDoc.assigneeId !== membership.userId) {
+    const organization = await organizations.findOne({
+      _id: membership.organizationId,
+    });
+    if (organization) {
+      await createNotificationSafe({
+        organizationId: membership.organizationId,
+        recipientId: taskDoc.assigneeId,
+        type: "task.assigned",
+        title: `Task assigned: ${taskDoc.title}`,
+        message: `You were assigned to "${taskDoc.title}" in project "${project.name}" (converted from meeting action item).`,
+        url: `/dashboard/${organization.slug}/projects/${project._id}#task-${taskDoc._id}`,
+        entityType: "task",
+        entityId: taskDoc._id,
+        projectId: project._id,
+        actorId: membership.userId,
+        dedupeKey: `task.assigned:${taskDoc._id.toHexString()}:${taskDoc.assigneeId}`,
+      });
+    }
+  }
+
+  const [[enrichedActionItem], [enrichedTask]] = await Promise.all([
+    enrichActionItemDocs(membership.organizationId, [updatedActionItem]),
+    hydrateEnrichedTasksInternal(
+      membership.organizationId,
+      [taskDoc],
+      projectsByHex,
+    ),
+  ]);
+
+  return {
+    actionItem: enrichedActionItem,
+    task: enrichedTask,
+    created: true,
+  };
+}
+
+
 
