@@ -10,6 +10,7 @@ import {
   type NotificationDoc,
   type OrganizationDoc,
   type ProjectDoc,
+  type RateLimitDoc,
   type ReviewDoc,
   type TaskDependencyDoc,
   type TaskDoc,
@@ -40,5 +41,6 @@ export async function getCollections() {
       COLLECTIONS.meetingActionItems,
     ),
     notifications: db.collection<NotificationDoc>(COLLECTIONS.notifications),
+    rateLimits: db.collection<RateLimitDoc>(COLLECTIONS.rateLimits),
   };
 }

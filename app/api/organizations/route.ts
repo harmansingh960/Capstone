@@ -7,6 +7,7 @@ import {
   TenantValidationError,
   type UserOrganization,
 } from "@/lib/tenancy";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 
 type OrganizationDto = {
   id: string;
@@ -49,7 +50,16 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   await connection();
   try {
-    await requireSessionUserId(request.headers);
+    const userId = await requireSessionUserId(request.headers);
+    const rateLimitError = await enforceRateLimit(
+      request,
+      "org_create",
+      RATE_LIMIT_PROFILES.mutation,
+      userId,
+    );
+    if (rateLimitError) {
+      return rateLimitError;
+    }
 
     let body: unknown;
     try {

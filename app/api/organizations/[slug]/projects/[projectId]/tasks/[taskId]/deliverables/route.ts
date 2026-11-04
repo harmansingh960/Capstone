@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import type { DeliverableDoc, ReviewDecision, ReviewDoc } from "@/lib/schema";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 import {
   createDeliverable,
   getOrganizationBySlug,
@@ -187,7 +188,16 @@ export async function POST(
 ) {
   await connection();
   try {
-    await requireSessionUserId(request.headers);
+    const userId = await requireSessionUserId(request.headers);
+    const rateLimitError = await enforceRateLimit(
+      request,
+      "deliverable_submit",
+      RATE_LIMIT_PROFILES.mutation,
+      userId,
+    );
+    if (rateLimitError) {
+      return rateLimitError;
+    }
 
     const { slug, projectId, taskId } = await params;
     let organization: UserOrganization;

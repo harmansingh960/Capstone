@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import type { ReviewDecision, ReviewDoc } from "@/lib/schema";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 import {
   createReview,
   getOrganizationBySlug,
@@ -186,7 +187,16 @@ export async function POST(
 ) {
   await connection();
   try {
-    await requireSessionUserId(request.headers);
+    const userId = await requireSessionUserId(request.headers);
+    const rateLimitError = await enforceRateLimit(
+      request,
+      "review_decide",
+      RATE_LIMIT_PROFILES.mutation,
+      userId,
+    );
+    if (rateLimitError) {
+      return rateLimitError;
+    }
 
     const { slug, projectId, taskId, deliverableId } = await params;
     let organization: UserOrganization;

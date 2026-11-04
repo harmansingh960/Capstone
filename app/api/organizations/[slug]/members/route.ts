@@ -11,6 +11,7 @@ import {
   type OrganizationMember,
   type UserOrganization,
 } from "@/lib/tenancy";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 
 type MemberDto = {
   userId: string;
@@ -101,7 +102,16 @@ export async function POST(
 ) {
   await connection();
   try {
-    await requireSessionUserId(request.headers);
+    const userId = await requireSessionUserId(request.headers);
+    const rateLimitError = await enforceRateLimit(
+      request,
+      "member_add",
+      RATE_LIMIT_PROFILES.mutation,
+      userId,
+    );
+    if (rateLimitError) {
+      return rateLimitError;
+    }
 
     const { slug } = await params;
     let organization: UserOrganization;

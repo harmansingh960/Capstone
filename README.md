@@ -1,181 +1,286 @@
-## Phase 7 — Notifications
+# Orchestr — Version 0.8.0
 
-Phase 7 introduces an in-app notification system to keep organization members informed about important changes and upcoming deadlines across Orchestr.
+## Phase 8: Deployment, Security & Production Readiness
 
-The system includes a notification center, unread tracking, event-driven notification generation, and a protected endpoint for generating deadline reminders.
+Version 0.8.0 completes the application’s production-infrastructure preparation and backend security-hardening work. It builds on the existing organization, project, task, review, supervision, meeting, and notification workflows.
 
-### 1. In-App Notification Center
+**Important:** Phase 8 implementation and independent code verification are complete. Actual production deployment and operational configuration remain separate tasks.
 
-Implemented a centralized notification system with:
+---
 
-- Notification bell with unread count.
-- Notification dropdown and dedicated notification center page.
-- All, Unread, and Read notification filters.
-- Individual notification read status updates.
-- Mark all notifications as read.
-- Pagination for notification history.
-- Polling to refresh unread counts.
-- Safe links to relevant organization, project, task, meeting, and workflow pages.
-- Empty states and error handling.
+## 1. Production Infrastructure
 
-The notification center is available at:
+### MongoDB Configuration
 
-`/dashboard/[slug]/notifications`
+- Supports production and development MongoDB connection configuration.
+- Supports `MONGODB_DB` and `MONGODB_DB_NAME` database-name configuration.
+- Supports MongoDB URI database-name fallback.
+- Supports configurable MongoDB connection pool size through `MONGODB_MAX_POOL_SIZE`.
+- Reuses the MongoDB client through a global connection reference.
+- Rejects invalid pool-size values before creating a database connection.
+- Keeps database setup additive and idempotent.
+- Logs the selected database name without exposing credentials.
 
-The notification bell is integrated into the main dashboard and relevant organization pages, including projects, meetings, members, and supervision.
+### Better Auth Configuration
 
-### 2. Supported Notification Events
+- Supports canonical application URL configuration.
+- Supports Vercel production and preview URL fallbacks.
+- Supports additional trusted origins through `BETTER_AUTH_TRUSTED_ORIGINS`.
+- Validates and normalizes trusted origins.
+- Rejects invalid origins, wildcard origins, credentials, paths, query strings, and fragments.
+- Enables secure cookies when using HTTPS.
+- Validates production authentication secrets.
+- Rejects insecure localhost production URLs.
 
-Notifications are generated for important workflow events:
+### Environment Variables
 
-| Event | Trigger |
+The `.env.example` file documents the main configuration variables:
+
+| Variable | Purpose |
 |---|---|
-| `task.assigned` | A task is assigned or reassigned to a member |
-| `task.updated` | Important task details are changed |
-| `deliverable.submitted` | A member submits a deliverable |
-| `review.decided` | A reviewer approves or requests changes |
-| `meeting.participant_added` | A member is added to a meeting |
-| `action_item.assigned` | A meeting action item is assigned |
-| `deadline.reminder` | A deadline reminder is generated |
-| `general` | General-purpose notification type |
+| `MONGODB_URI` | MongoDB connection string |
+| `MONGODB_DB` | Database name |
+| `MONGODB_MAX_POOL_SIZE` | MongoDB connection pool size |
+| `BETTER_AUTH_SECRET` | Better Auth secret |
+| `BETTER_AUTH_URL` | Canonical application URL |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Additional trusted origins |
+| `ORCHESTR_CRON_SECRET` | Deadline reminder endpoint secret |
 
-Notifications are sent to relevant recipients while excluding the actor where appropriate.
+Additional security and rate-limiting variables are documented in the environment configuration.
 
-No notification is generated for unchanged task values or assignments that do not represent a new assignment.
+---
 
-### 3. Deadline Reminders
+## 2. Security Hardening
 
-Added a protected endpoint for generating deadline reminder notifications:
+### Structured Logging
 
-`POST /api/organizations/[slug]/notifications/reminders`
+Added `lib/logger.ts`.
 
-The endpoint:
+- Structured JSON logging.
+- Recursive sensitive-field redaction.
+- Sanitized error logging.
+- Avoids exposing secrets and sensitive authentication information in application logs.
 
-- Identifies tasks matching the deadline reminder criteria.
-- Uses existing task deadline health calculations.
-- Supports authenticated administrator and manager access.
-- Supports cron-secret authentication through:
-  - `x-orchestr-cron-secret`
-  - `Authorization: Bearer <secret>`
-- Supports dry-run execution to preview reminders without modifying database records.
-- Returns structured generation metrics.
+### HTTP Security Headers
 
-Supported dry-run inputs:
+Configured security headers through `next.config.ts`.
 
-- Query parameter: `dryRun=true`
-- Query parameter: `dry_run=true`
-- JSON body: `{"dryRun": true}`
-- JSON body: `{"dry_run": true}`
+Includes:
 
-The response includes:
+- Content Security Policy (CSP).
+- HTTP Strict Transport Security (HSTS) in production.
+- `X-Content-Type-Options: nosniff`.
+- `X-Frame-Options`.
+- `Referrer-Policy`.
+- `Permissions-Policy`.
 
-- `matchedTasks`
-- `generated`
-- `skipped`
-- `dryRun`
-- `referenceDate`
+The current CSP retains `unsafe-inline` and `unsafe-eval` for compatibility with the Next.js runtime. A stricter nonce-based policy can be considered in future hardening.
 
-Configure a cron secret using `ORCHESTR_CRON_SECRET` or `CRON_SECRET` in the deployment environment.
+### Origin and Cross-Origin Protection
 
-### 4. Duplicate Prevention
+Added shared origin validation and Next.js 16 Proxy protection.
 
-Implemented notification deduplication using a `dedupeKey` and a partial unique MongoDB index:
+- Explicit trusted-origin handling.
+- No wildcard CORS configuration.
+- Trusted preflight requests receive an appropriate response.
+- Untrusted cross-origin mutation requests are rejected.
+- Same-origin requests and requests without an Origin header retain their supported behavior.
+- Trusted origins are normalized and validated before use.
 
-`org_recipient_dedupe_unique`
+### Authentication and API Rate Limiting
 
-The index uses:
+Added `lib/rate-limit.ts`.
 
-- `organizationId`
-- `recipientId`
-- `dedupeKey`
+Rate limiting uses MongoDB-backed atomic counters.
 
-This prevents duplicate notifications for the same recipient and event key.
+Features:
 
-Duplicate-key errors are handled safely, allowing repeated or concurrent reminder generation without creating duplicate records.
+- Per-user and per-IP rate-limit scopes.
+- Fixed 60-second windows.
+- Atomic counter updates.
+- Unique counter keys.
+- TTL-based cleanup.
+- Configurable rate-limit profiles.
+- Configurable failure policies.
+- Emergency rate-limit disable switch.
 
-### 5. Database and Schema
+Default profiles:
 
-Added the `notifications` collection with:
+| Profile | Default limit | Scope |
+|---|---:|---|
+| Authentication | 10 requests/minute | IP |
+| Mutation | 60 requests/minute | User |
+| Batch operations | 10 requests/minute | Organization/IP |
+| General API | 120 requests/minute | User |
 
-- Notification type.
-- Organization ID.
-- Recipient ID.
-- Actor ID, where applicable.
-- Entity type and entity ID.
-- Title and message.
-- Read status.
-- Optional deduplication key.
-- Creation timestamp.
+Rate limiting is integrated into important operations, including authentication, organization creation, member addition, task creation, deliverable submission, review decisions, meeting action-item conversion, and deadline reminders.
 
-Added validation and indexes for notification retrieval, unread counts, recipient-scoped queries, and deduplication.
+### Rate-Limit Failure Policies
 
-Run the database setup command to apply schema and index changes:
+- Authentication and batch profiles default to fail-closed.
+- Mutation profiles default to fail-open.
+- Fail-closed requests return HTTP 503 when the rate-limit store is unavailable.
+- Failure policies can be configured through environment variables.
+- Invalid policy values fall back to the profile defaults.
+
+Relevant configuration:
+
+- `RATE_LIMIT_DISABLED`
+- `RATE_LIMIT_AUTH_FAILURE_POLICY`
+- `RATE_LIMIT_BATCH_FAILURE_POLICY`
+- `RATE_LIMIT_MUTATION_FAILURE_POLICY`
+- `TRUSTED_CLIENT_IP_HEADER`
+
+IP identification supports validated trusted proxy headers. Custom headers must be overwritten by the trusted upstream proxy. Direct-origin access must be restricted when relying on proxy-provided client IP headers.
+
+---
+
+## 3. Database Changes
+
+Added the `rate_limits` collection.
+
+The database setup includes:
+
+- Rate-limit document validation.
+- Unique counter-key index.
+- TTL index for automatic expiration.
+- Existing application collections and indexes remain managed through the additive database setup process.
+
+Run the following command against the intended database:
 
 ```bash
 npm run db:setup
 ```
 
-### 6. API Endpoints
+For production, confirm the database connection and database name before running this command.
 
-Implemented notification APIs for:
+---
 
-- Retrieving notifications.
-- Retrieving unread notification counts.
-- Marking an individual notification as read.
-- Marking all notifications as read.
-- Generating deadline reminders.
+## 4. Health Checks and Monitoring
 
-The API supports pagination and read-status filtering.
+Updated `/api/health`.
 
-### 7. Security and Access Control
+The health endpoint provides:
 
-The notification system follows organization-level tenancy and recipient-level access controls.
+- Database connectivity status.
+- Database latency information.
+- Structured and sanitized error reporting.
 
-- Notification recipients are derived from the authenticated session.
-- Users can only retrieve and update their own notifications.
-- Queries are scoped by organization and recipient.
-- Cross-organization notification access is prevented.
-- Notification DTOs do not expose raw database documents or recipient IDs.
-- Notification links are validated and restricted to safe organization dashboard paths.
-- Reminder generation requires valid administrator/manager authentication or the configured cron secret.
-- Dry-run mode does not bypass authentication or authorization.
+Application logging supports structured output suitable for an external logging or monitoring service.
 
-### 8. Verification Results
+External log-drain configuration and production monitoring setup remain deployment responsibilities.
 
-Phase 7 was independently verified in two batches.
+---
 
-**Batch 1 — In-App Notifications**
+## 5. Backup and Recovery Preparation
 
-- 36/36 verification checks passed.
-- Notification schema and indexes verified.
-- API retrieval, pagination, filtering, and read operations verified.
-- Tenant isolation and recipient access controls verified.
-- Safe notification links verified.
-- Notification UI and regression checks passed.
+Production database operations should include:
 
-**Batch 2 — Event-Driven Notification Generation**
+- Verified MongoDB Atlas backup configuration.
+- Continuous backups and point-in-time recovery where supported by the selected Atlas tier.
+- A documented recovery procedure.
+- Periodic restore testing.
+- Separate production database credentials with least-privilege access.
 
-- 30/30 targeted verification checks passed.
-- TypeScript: 0 errors.
-- ESLint: 0 errors and warnings.
-- Production build completed successfully.
-- Notification creation and duplicate handling verified.
-- Event-driven notification triggers verified.
-- Reminder endpoint authorization verified.
-- Concurrent reminder generation verified.
-- Dry-run behavior verified with no database writes.
-- Test data cleanup verified.
+For tiers without continuous backups, establish a manual backup and restore process.
 
-### 9. Known Limitation
+Backup availability must be confirmed in MongoDB Atlas; documentation alone does not enable backups.
 
-Notification delivery currently uses best-effort dispatch.
+---
 
-There is no durable notification outbox, background retry worker, or guaranteed retry mechanism yet. If notification persistence fails after a business operation has already committed, the corresponding notification may be lost.
+## 6. Deployment Configuration
 
-A durable outbox and retry mechanism can be introduced in a future reliability improvement.
+The application is prepared for deployment using Vercel and MongoDB Atlas.
 
-### Phase 7 Status
+Production setup requires:
 
-**Complete — Implementation and independent verification passed.**
+1. Create a separate production MongoDB database.
+2. Create a dedicated least-privilege database user.
+3. Configure production environment variables in Vercel.
+4. Run database setup against the production database.
+5. Configure the production application URL and trusted origins.
+6. Configure the cron secret and schedule deadline reminders.
+7. Configure rate-limit and trusted proxy settings where necessary.
+8. Deploy the application.
+9. Verify the production health endpoint and critical workflows.
 
-Phase 7 provides the notification foundation required for team members and supervisors to stay informed about task assignments, workflow changes, reviews, meeting participation, action-item assignments, and upcoming deadlines.
+The local Docker development setup remains supported.
+
+**Production deployment is not included in the completed code-verification status.**
+
+---
+
+## 7. Verification Results
+
+Phase 8 underwent independent verification using a separate testing session.
+
+### Batch 1 — Production Infrastructure
+
+- TypeScript checks passed.
+- ESLint passed.
+- Production build passed.
+- MongoDB configuration validation passed.
+- MongoDB pool-size validation passed.
+- Better Auth URL and trusted-origin validation passed.
+- Vercel URL fallback handling passed.
+- Database setup behavior reviewed.
+
+### Batch 2 — Security and Reliability
+
+- TypeScript checks passed.
+- ESLint passed.
+- Production build passed.
+- Rate-limit counter behavior verified.
+- Atomic counter updates verified.
+- Unique index and TTL configuration verified.
+- Authentication and batch failure policies verified.
+- IP validation and trusted-header handling reviewed.
+- Origin protection and CORS behavior verified.
+- Rate-limit integrations reviewed.
+- Database collection counts remained unchanged during the final verification.
+
+No Critical, High, or Medium residual findings were reported in the final independent verification.
+
+---
+
+## 8. Known Limitations and Operational Requirements
+
+- Production deployment has not yet been confirmed.
+- Production environment variables and database setup must be completed.
+- MongoDB Atlas network access must be restricted appropriately.
+- Production backups must be explicitly enabled and verified.
+- External monitoring and log-drain services require configuration.
+- Deadline reminder scheduling must be configured.
+- Cloudflare deployments must restrict direct origin access and correctly configure trusted proxy behavior.
+- The current Content Security Policy retains compatibility-oriented directives.
+- Notification dispatch remains best-effort; a durable outbox and retry worker have not been implemented.
+
+---
+
+## 9. Version 0.8.0 Completion Status
+
+| Area | Status |
+|---|---|
+| Production infrastructure code | Complete |
+| MongoDB configuration | Complete |
+| Better Auth production configuration | Complete |
+| Security headers | Complete |
+| Origin protection | Complete |
+| API rate limiting | Complete |
+| Structured logging | Complete |
+| Health-check improvements | Complete |
+| Independent verification | Passed |
+| Production database setup | Pending |
+| Production deployment | Pending |
+| Backup and monitoring activation | Pending |
+| Production smoke testing | Pending |
+
+---
+
+## 10. Next Development Stage
+
+With Phase 8 implementation complete, the recommended next stage is **Frontend UI/UX Refinement**.
+
+After frontend refinement and production deployment, Orchestr can move into Phase 9: Real Usage Pilot.
+
+The pilot should validate the complete workflow with a small team, identify usability problems, and prioritize improvements based on actual usage.

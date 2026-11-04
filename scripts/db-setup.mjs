@@ -5,13 +5,15 @@
 //   npm run db:setup
 // In Docker (env already loaded from .env.local by Compose):
 //   docker compose exec web npm run db:setup
+// For production / staging:
+//   MONGODB_URI="mongodb+srv://..." MONGODB_DB="orchestr_prod" npm run db:setup
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { MongoClient } from "mongodb";
 import { ensureSchema, resolveMongoDbName } from "../lib/schema.ts";
 
 // Fallback for direct `node scripts/db-setup.mjs` invocations on the host.
-// Existing environment variables (e.g. from Docker Compose) are never overwritten.
+// Existing environment variables (e.g. from CLI or Docker Compose) are never overwritten.
 const envLocalPath = fileURLToPath(new URL("../.env.local", import.meta.url));
 if (existsSync(envLocalPath)) {
   process.loadEnvFile?.(envLocalPath);
@@ -26,10 +28,14 @@ function redactSecrets(text) {
 
 const uri = process.env.MONGODB_URI;
 if (!uri) {
-  console.error("MONGODB_URI is not set.");
+  console.error(
+    "MONGODB_URI is not set. Set MONGODB_URI in your environment or .env.local.",
+  );
   process.exit(1);
 }
 const dbName = resolveMongoDbName(process.env);
+
+console.log(`Applying schema to target database: "${dbName}"...`);
 
 const client = new MongoClient(uri);
 try {
@@ -37,6 +43,7 @@ try {
   for (const r of results) {
     console.log(`${r.collection}: ${r.action}; indexes: ${r.indexes.join(", ")}`);
   }
+  console.log(`Schema setup completed successfully for database: "${dbName}".`);
 } catch (error) {
   const codeName = error?.codeName ? `${error.codeName} ` : "";
   const message = redactSecrets(error?.message ?? error);

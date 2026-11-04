@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { toMeetingActionItemDto, type MeetingActionItemDto } from "@/lib/meeting-dto";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 import type {
   MembershipRole,
   ProjectStatus,
@@ -170,7 +171,16 @@ export async function POST(
 ) {
   await connection();
   try {
-    await requireSessionUserId(request.headers);
+    const userId = await requireSessionUserId(request.headers);
+    const rateLimitError = await enforceRateLimit(
+      request,
+      "action_item_convert",
+      RATE_LIMIT_PROFILES.mutation,
+      userId,
+    );
+    if (rateLimitError) {
+      return rateLimitError;
+    }
 
     const { slug, meetingId, actionItemId } = await params;
     let organization: UserOrganization;
