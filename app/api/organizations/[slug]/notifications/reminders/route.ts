@@ -6,6 +6,7 @@ import {
   MANAGER_ROLES,
   TenantAccessError,
 } from "@/lib/tenancy";
+import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 
 /**
  * POST /api/organizations/[slug]/notifications/reminders
@@ -29,6 +30,16 @@ export async function POST(
   await connection();
   try {
     const { slug } = await params;
+
+    const rateLimitError = await enforceRateLimit(
+      request,
+      `reminders:${slug}`,
+      RATE_LIMIT_PROFILES.batch,
+    );
+    if (rateLimitError) {
+      return rateLimitError;
+    }
+
     const { organizations } = await getCollections();
     const organization = await organizations.findOne({ slug });
     if (!organization) {
@@ -152,8 +163,12 @@ export async function POST(
       { status: 200 },
     );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
+    const isProd = process.env.NODE_ENV === "production";
+    const message = isProd
+      ? "Internal server error."
+      : error instanceof Error
+      ? error.message
+      : "Internal server error.";
     return Response.json({ error: message }, { status: 500 });
   }
 }

@@ -10,6 +10,28 @@ const globalForMongo = globalThis as unknown as {
   _mongoClientPromise?: Promise<MongoClient>;
 };
 
+function parseMongoMaxPoolSize(val?: string): number | undefined {
+  if (val === undefined) {
+    return undefined;
+  }
+  const trimmed = val.trim();
+  if (trimmed === "") {
+    return undefined;
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `Invalid MONGODB_MAX_POOL_SIZE: "${trimmed}". Expected a positive integer.`,
+    );
+  }
+  const parsed = parseInt(trimmed, 10);
+  if (parsed <= 0 || !Number.isSafeInteger(parsed)) {
+    throw new Error(
+      `Invalid MONGODB_MAX_POOL_SIZE: "${trimmed}". Expected a positive integer greater than zero.`,
+    );
+  }
+  return parsed;
+}
+
 // The single shared client instance (not yet awaited). The driver connects
 // lazily on first operation, so this is safe to hand to libraries that need a
 // client synchronously (e.g. Better Auth's MongoDB adapter).
@@ -17,10 +39,16 @@ export function getMongoClient(): MongoClient {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
     throw new Error(
-      "MONGODB_URI is not set. Copy .env.example to .env.local and add your Atlas connection string.",
+      "MONGODB_URI is not set. Set MONGODB_URI in your environment or .env.local with your MongoDB Atlas connection string.",
     );
   }
-  globalForMongo._mongoClient ??= new MongoClient(uri);
+  if (!globalForMongo._mongoClient) {
+    const maxPoolSize = parseMongoMaxPoolSize(process.env.MONGODB_MAX_POOL_SIZE);
+    globalForMongo._mongoClient = new MongoClient(
+      uri,
+      maxPoolSize ? { maxPoolSize } : undefined,
+    );
+  }
   return globalForMongo._mongoClient;
 }
 

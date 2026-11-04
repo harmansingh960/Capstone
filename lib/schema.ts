@@ -140,21 +140,35 @@ export const COLLECTIONS = {
   meetings: "meetings",
   meetingActionItems: "meeting_action_items",
   notifications: "notifications",
+  rateLimits: "rate_limits",
 } as const;
+
+export type RateLimitDoc = {
+  _id: ObjectId;
+  key: string;
+  count: number;
+  resetAt: Date;
+  createdAt: Date;
+};
 
 export const DEFAULT_MONGODB_DB = "orchestr";
 
 /**
  * Resolves the target MongoDB database name consistently across the Next.js
  * runtime (`lib/db.ts`) and `scripts/db-setup.mjs`:
- *   1. Explicit `MONGODB_DB` environment variable (trimmed, non-empty).
+ *   1. Explicit `MONGODB_DB` or `MONGODB_DB_NAME` environment variable (trimmed, non-empty).
  *   2. Database path segment in `MONGODB_URI`, when present.
  *   3. `DEFAULT_MONGODB_DB` ("orchestr").
  */
 export function resolveMongoDbName(
-  env: { readonly MONGODB_DB?: string; readonly MONGODB_URI?: string; readonly [key: string]: string | undefined } = process.env,
+  env: {
+    readonly MONGODB_DB?: string;
+    readonly MONGODB_DB_NAME?: string;
+    readonly MONGODB_URI?: string;
+    readonly [key: string]: string | undefined;
+  } = process.env,
 ): string {
-  const explicitDb = env.MONGODB_DB?.trim();
+  const explicitDb = env.MONGODB_DB?.trim() || env.MONGODB_DB_NAME?.trim();
   if (explicitDb) {
     return explicitDb;
   }
@@ -925,6 +939,25 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
         unique: true,
         partialFilterExpression: { dedupeKey: { $type: "string" } },
       },
+    ],
+  },
+  {
+    name: COLLECTIONS.rateLimits,
+    schema: {
+      bsonType: "object",
+      required: ["key", "count", "resetAt", "createdAt"],
+      properties: {
+        _id: { bsonType: "objectId" },
+        key: { bsonType: "string" },
+        count: { bsonType: ["int", "long", "double"] },
+        resetAt: { bsonType: "date" },
+        createdAt: { bsonType: "date" },
+      },
+      additionalProperties: true,
+    },
+    indexes: [
+      { key: { key: 1 }, unique: true, name: "rate_limit_key_unique" },
+      { key: { resetAt: 1 }, expireAfterSeconds: 0, name: "rate_limit_ttl" },
     ],
   },
 ];
