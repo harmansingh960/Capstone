@@ -13,6 +13,7 @@ import {
   type UserOrganization,
 } from "@/lib/tenancy";
 import { SignOutButton } from "../../../sign-out-button";
+import { NotificationBell } from "../../notification-bell";
 import {
   TasksClient,
   type TaskSummary,
@@ -179,7 +180,10 @@ async function ProjectTasksWorkspace({
             </Link>
           ) : null}
         </div>
-        <SignOutButton />
+        <div className="flex items-center gap-3">
+          <NotificationBell organizationSlug={organization.slug} />
+          <SignOutButton />
+        </div>
       </div>
 
       <header className="flex flex-col gap-2 rounded border border-zinc-200 p-4 dark:border-zinc-800">

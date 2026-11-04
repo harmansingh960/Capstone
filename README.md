@@ -1,395 +1,181 @@
-# Phase 5 — Supervision & Reports
+## Phase 7 — Notifications
 
-**Status:** Completed and independently verified  
-**Version:** Phase 5  
-**Scope:** Phases 5.1–5.5
+Phase 7 introduces an in-app notification system to keep organization members informed about important changes and upcoming deadlines across Orchestr.
 
-## 1. Overview
+The system includes a notification center, unread tracking, event-driven notification generation, and a protected endpoint for generating deadline reminders.
 
-Phase 5 introduces organization-wide supervision and reporting capabilities to Orchestr.
+### 1. In-App Notification Center
 
-It provides administrators and managers with a centralized view of organizational operations, project health, task progress, overdue work, inactive tasks, team workload, and time-based reports.
+Implemented a centralized notification system with:
 
-The objective is to help supervisors identify delays, monitor team performance, understand project progress, and make informed operational decisions without relying on fragmented manual updates.
+- Notification bell with unread count.
+- Notification dropdown and dedicated notification center page.
+- All, Unread, and Read notification filters.
+- Individual notification read status updates.
+- Mark all notifications as read.
+- Pagination for notification history.
+- Polling to refresh unread counts.
+- Safe links to relevant organization, project, task, meeting, and workflow pages.
+- Empty states and error handling.
 
-## 2. Features Implemented
+The notification center is available at:
 
-### 5.1 — Supervisor Dashboard
+`/dashboard/[slug]/notifications`
 
-Added a dedicated **Supervision & Reports** dashboard for organization administrators and managers.
+The notification bell is integrated into the main dashboard and relevant organization pages, including projects, meetings, members, and supervision.
 
-The dashboard provides:
+### 2. Supported Notification Events
 
-- Active project count.
-- Total task count.
-- To Do, In Progress, and Completed task counts.
-- Overdue task count.
-- Stale task count.
-- Blocked task count.
-- Tasks awaiting submission.
-- Tasks awaiting review.
-- Tasks due today.
-- Tasks due soon.
-- Project-level operational health summaries.
-- Overdue and stale task attention queues.
+Notifications are generated for important workflow events:
 
-Project summaries include task counts and completion percentages.
-
-**Completion calculation:**
-
-`Completion % = (Completed top-level tasks / Total top-level tasks) × 100`
-
-Subtasks are excluded from top-level completion calculations and reported separately to avoid double-counting.
-
-### 5.2 — Advanced Task Filters & Sorting
-
-Implemented organization-wide and project-level task filtering.
-
-Supported filters include:
-
-- Project.
-- Task status.
-- Priority.
-- Assignee.
-- Deadline range.
-- Overdue status.
-- Due-today status.
-- Due-soon status.
-- Stale status.
-- Blocked status.
-- Deliverable status.
-- Parent task and subtask scope.
-
-Multiple filters can be combined using AND logic.
-
-Supported sorting:
-
-- Deadline.
-- Priority.
-- Creation date.
-- Last meaningful activity.
-- Task status.
-
-Additional functionality:
-
-- Ascending and descending sorting.
-- Pagination.
-- Page-size validation.
-- Filter reset.
-- Server-side query validation.
-
-### 5.3 — Overdue & Due-Date Detection
-
-Overdue and deadline health are calculated dynamically when task data is requested.
-
-Supported deadline states:
-
-| State | Meaning |
+| Event | Trigger |
 |---|---|
-| `overdue` | Deadline has passed and task is incomplete |
-| `due_today` | Task is due on the current UTC calendar day |
-| `due_soon` | Deadline falls within the next seven UTC calendar days |
-| `upcoming` | Deadline is beyond the due-soon window |
-| `no_deadline` | No deadline is assigned |
-| `completed` | Task is completed |
-| `archived` | Task belongs to an archived project |
+| `task.assigned` | A task is assigned or reassigned to a member |
+| `task.updated` | Important task details are changed |
+| `deliverable.submitted` | A member submits a deliverable |
+| `review.decided` | A reviewer approves or requests changes |
+| `meeting.participant_added` | A member is added to a meeting |
+| `action_item.assigned` | A meeting action item is assigned |
+| `deadline.reminder` | A deadline reminder is generated |
+| `general` | General-purpose notification type |
 
-Rules:
+Notifications are sent to relevant recipients while excluding the actor where appropriate.
 
-- Completed tasks are not classified as overdue.
-- Tasks in archived projects are excluded from overdue and due-soon calculations.
-- Tasks without deadlines are not overdue.
-- Date-only deadlines stored at midnight UTC are evaluated through the end of that UTC calendar day.
-- Explicit timestamps are compared directly.
-- The default due-soon window is seven UTC calendar days.
+No notification is generated for unchanged task values or assignments that do not represent a new assignment.
 
-No redundant overdue or due-soon boolean fields are stored in MongoDB.
+### 3. Deadline Reminders
 
-### 5.4 — Stale Task Detection
+Added a protected endpoint for generating deadline reminder notifications:
 
-Implemented activity-backed task inactivity monitoring.
+`POST /api/organizations/[slug]/notifications/reminders`
 
-Default stale threshold:
+The endpoint:
 
-`DEFAULT_STALE_THRESHOLD_DAYS = 7`
+- Identifies tasks matching the deadline reminder criteria.
+- Uses existing task deadline health calculations.
+- Supports authenticated administrator and manager access.
+- Supports cron-secret authentication through:
+  - `x-orchestr-cron-secret`
+  - `Authorization: Bearer <secret>`
+- Supports dry-run execution to preview reminders without modifying database records.
+- Returns structured generation metrics.
 
-The threshold can be configured between 1 and 365 days.
+Supported dry-run inputs:
 
-Last meaningful activity is calculated using the existing `activities` collection.
+- Query parameter: `dryRun=true`
+- Query parameter: `dry_run=true`
+- JSON body: `{"dryRun": true}`
+- JSON body: `{"dry_run": true}`
 
-Meaningful activity includes:
+The response includes:
 
-- Task creation.
-- Subtask creation.
-- Task updates.
-- Status changes.
-- Priority changes.
-- Assignee changes.
-- Deadline changes.
-- Approval requirement changes.
-- Dependency additions and removals.
-- Deliverable submissions.
-- Review approvals.
-- Changes-requested decisions.
-- Updated review decisions.
+- `matchedTasks`
+- `generated`
+- `skipped`
+- `dryRun`
+- `referenceDate`
 
-If no matching activity exists, the system falls back to:
+Configure a cron secret using `ORCHESTR_CRON_SECRET` or `CRON_SECRET` in the deployment environment.
 
-`task.updatedAt ?? task.createdAt`
+### 4. Duplicate Prevention
 
-A task is considered stale when:
+Implemented notification deduplication using a `dedupeKey` and a partial unique MongoDB index:
 
-`Current time - Last meaningful activity >= Stale threshold`
+`org_recipient_dedupe_unique`
 
-Stale detection applies only to incomplete tasks in active projects.
+The index uses:
 
-The implementation uses batched activity aggregation rather than performing an individual activity query for every task.
+- `organizationId`
+- `recipientId`
+- `dedupeKey`
 
-### 5.5 — Progress Monitoring & Reports
+This prevents duplicate notifications for the same recipient and event key.
 
-Implemented supervision reporting for project progress, team workload, and time-based task activity.
+Duplicate-key errors are handled safely, allowing repeated or concurrent reminder generation without creating duplicate records.
 
-**Project progress reports**
+### 5. Database and Schema
 
-- Total top-level tasks.
-- Completed tasks.
-- Incomplete tasks.
-- Completion percentage.
-- Separate subtask summaries.
+Added the `notifications` collection with:
 
-**Team workload reports**
+- Notification type.
+- Organization ID.
+- Recipient ID.
+- Actor ID, where applicable.
+- Entity type and entity ID.
+- Title and message.
+- Read status.
+- Optional deduplication key.
+- Creation timestamp.
 
-- Assigned task counts by team member.
-- Workload distribution.
-- Unassigned task counts.
+Added validation and indexes for notification retrieval, unread counts, recipient-scoped queries, and deduplication.
 
-**Time-based reports**
+Run the database setup command to apply schema and index changes:
 
-- Tasks created within a selected date range.
-- Tasks completed within a selected date range.
-- Overdue task counts.
-- Stale task counts.
+```bash
+npm run db:setup
+```
 
-Completion reporting uses task creation timestamps and `task.status_changed` activity records, with an `updatedAt` fallback for older completed tasks.
+### 6. API Endpoints
 
-Historical reporting limitations are retained where the underlying records do not contain complete historical information.
+Implemented notification APIs for:
 
-## 3. API Routes
+- Retrieving notifications.
+- Retrieving unread notification counts.
+- Marking an individual notification as read.
+- Marking all notifications as read.
+- Generating deadline reminders.
 
-### Supervisor dashboard
+The API supports pagination and read-status filtering.
 
-`GET /api/organizations/[slug]/supervision`
+### 7. Security and Access Control
 
-Returns:
+The notification system follows organization-level tenancy and recipient-level access controls.
 
-- Organization operational metrics.
-- Project health summaries.
-- Overdue task highlights.
-- Stale task highlights.
+- Notification recipients are derived from the authenticated session.
+- Users can only retrieve and update their own notifications.
+- Queries are scoped by organization and recipient.
+- Cross-organization notification access is prevented.
+- Notification DTOs do not expose raw database documents or recipient IDs.
+- Notification links are validated and restricted to safe organization dashboard paths.
+- Reminder generation requires valid administrator/manager authentication or the configured cron secret.
+- Dry-run mode does not bypass authentication or authorization.
 
-Access: Admin and Manager.
+### 8. Verification Results
 
-### Organization-wide supervision task explorer
+Phase 7 was independently verified in two batches.
 
-`GET /api/organizations/[slug]/supervision/tasks`
+**Batch 1 — In-App Notifications**
 
-Returns filtered, sorted, enriched, and paginated organization-wide task results.
+- 36/36 verification checks passed.
+- Notification schema and indexes verified.
+- API retrieval, pagination, filtering, and read operations verified.
+- Tenant isolation and recipient access controls verified.
+- Safe notification links verified.
+- Notification UI and regression checks passed.
 
-Access: Admin and Manager.
+**Batch 2 — Event-Driven Notification Generation**
 
-### Organization task alias
+- 30/30 targeted verification checks passed.
+- TypeScript: 0 errors.
+- ESLint: 0 errors and warnings.
+- Production build completed successfully.
+- Notification creation and duplicate handling verified.
+- Event-driven notification triggers verified.
+- Reminder endpoint authorization verified.
+- Concurrent reminder generation verified.
+- Dry-run behavior verified with no database writes.
+- Test data cleanup verified.
 
-`GET /api/organizations/[slug]/tasks`
+### 9. Known Limitation
 
-Provides the organization-wide task endpoint through the supervision task route.
+Notification delivery currently uses best-effort dispatch.
 
-### Supervision reports
+There is no durable notification outbox, background retry worker, or guaranteed retry mechanism yet. If notification persistence fails after a business operation has already committed, the corresponding notification may be lost.
 
-`GET /api/organizations/[slug]/supervision/reports`
+A durable outbox and retry mechanism can be introduced in a future reliability improvement.
 
-Returns project progress, team workload, and time-based reporting data.
+### Phase 7 Status
 
-Access: Admin and Manager.
+**Complete — Implementation and independent verification passed.**
 
-### Organization reports alias
-
-`GET /api/organizations/[slug]/reports`
-
-Provides the organization reports endpoint through the supervision reports route.
-
-### Project task listing
-
-`GET /api/organizations/[slug]/projects/[projectId]/tasks`
-
-Supports advanced project-level filters, sorting, pagination, and enriched task health information.
-
-### Project task creation
-
-`POST /api/organizations/[slug]/projects/[projectId]/tasks`
-
-Preserves existing task creation functionality and validation.
-
-### Task updates
-
-`PATCH /api/organizations/[slug]/projects/[projectId]/tasks/[taskId]`
-
-Returns updated task information with enriched health fields and serialized assignee data.
-
-## 4. Backend Architecture
-
-The majority of Phase 5 business logic is implemented in:
-
-`lib/tenancy.ts`
-
-Important helpers include:
-
-| Helper | Responsibility |
-|---|---|
-| `computeTaskDeadlineHealth` | Dynamic deadline classification |
-| `computeTaskStaleHealth` | Stale task calculation |
-| `getTasksLastActivityMap` | Batched task activity lookup |
-| `enrichSingleTask` | Enriches task data with health and related information |
-| `sortEnrichedTasks` | Deterministic task sorting |
-| `queryProjectTasks` | Project-level filtering and pagination |
-| `queryOrganizationTasks` | Organization-wide supervisory task queries |
-| `getSupervisorDashboard` | Dashboard aggregation |
-| `getSupervisionReports` | Progress, workload, and time-based reports |
-| `serializeTaskAssignee` | Maps backend assignee data to client-facing DTO format |
-
-### Task enrichment
-
-Enriched task responses can include:
-
-- `isOverdue`
-- `isDueToday`
-- `isDueSoon`
-- `deadlineState`
-- `isStale`
-- `lastActivityAt`
-- `daysSinceActivity`
-- `projectName`
-- `projectStatus`
-- `parentTaskTitle`
-- `assignee`
-
-Assignee serialization maps the backend `userId` field to the client-facing `id` field while preserving the member's name, email, and role.
-
-## 5. Database and Indexes
-
-**Schema changes:** None required.
-
-Phase 5 reuses existing MongoDB collections:
-
-- `organizations`
-- `memberships`
-- `projects`
-- `tasks`
-- `task_dependencies`
-- `deliverables`
-- `reviews`
-- `activities`
-
-Existing compound indexes are reused for task filtering, deadline queries, assignment lookup, project scoping, and activity retrieval.
-
-No redundant overdue or stale fields are persisted.
-
-## 6. Security and Permissions
-
-Phase 5 preserves the existing authentication, organization membership, and role-based authorization architecture.
-
-**Admin**
-- Full organization supervision access.
-- Dashboard and reporting access.
-- Organization-wide task exploration.
-
-**Manager**
-- Full organization supervision access.
-- Dashboard and reporting access.
-- Organization-wide task exploration.
-
-**Member**
-- Cannot access organization-wide supervision dashboards or reports.
-- Can continue using permitted project-level task filters and health indicators.
-
-Security controls include:
-
-- Better Auth session verification.
-- Server-side role enforcement.
-- Organization-scoped database queries.
-- Cross-organization resource isolation.
-- Rejection of unauthorized project IDs.
-- Validation of filter and sorting parameters.
-- Read-only dashboard and report aggregation.
-
-Unauthorized members receive a 403 response from supervisory APIs. Non-members receive a not-found response for organization-scoped resources.
-
-## 7. UI Implementation
-
-Added the supervision page:
-
-`/dashboard/[slug]/supervision`
-
-Main sections:
-
-1. Organization Operational Overview.
-2. Project Health & Operational Summary.
-3. Overdue Attention Queue.
-4. Stale Attention Queue.
-5. Advanced Project & Task Explorer.
-6. Progress Monitoring.
-7. Team Workload.
-8. Time-Based Reports.
-
-Navigation links are displayed for admin and manager roles.
-
-Project task pages also display task health badges and last meaningful activity information.
-
-The supervision interface supports responsive layouts for narrower mobile viewports.
-
-## 8. Independent Verification Results
-
-Phase 5 underwent two independent verification passes.
-
-### Initial backend verification
-
-| Test area | Result |
-|---|---:|
-| Backend integration tests | 55/55 passed |
-| Supervisor dashboard calculations | PASS |
-| Advanced filters and sorting | PASS |
-| Overdue detection | PASS |
-| Stale detection | PASS |
-| Progress and workload reports | PASS |
-| Authentication and tenant isolation | PASS |
-| Focused Phase 4 regression | PASS |
-
-The first verification identified frontend integration issues, which were corrected in a separate implementation pass.
-
-### Final targeted verification
-
-| Check | Result |
-|---|---:|
-| TypeScript (`npx tsc --noEmit`) | PASS — 0 errors |
-| ESLint (`npm run lint`) | PASS — 0 errors, 0 warnings |
-| Supervision page compilation | PASS |
-| Admin dashboard access | PASS |
-| Manager dashboard access | PASS |
-| Member access restriction | PASS |
-| Assignee serialization | PASS — all 5 locations |
-| Time-report contract | PASS |
-| Browser rendering and hydration | PASS |
-| Interactive dashboard controls | PASS |
-| Mobile responsive layout | PASS |
-| Focused Phase 4 regression | PASS |
-
-**Final Phase 5 verification status: PASS.**
-
-## 9. Completion Summary
-
-Phase 5 establishes the supervisory and reporting layer of Orchestr.
-
-The system now supports organization-wide operational visibility, project health monitoring, deadline tracking, inactivity detection, advanced task exploration, team workload reporting, and progress monitoring.
-
-All Phase 5.1–5.5 functionality has been independently verified.
-
-**Next planned development phase: Phase 6 — Meetings & Action Items.**
+Phase 7 provides the notification foundation required for team members and supervisors to stay informed about task assignments, workflow changes, reviews, meeting participation, action-item assignments, and upcoming deadlines.

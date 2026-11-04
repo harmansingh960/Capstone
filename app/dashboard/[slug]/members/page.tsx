@@ -9,6 +9,7 @@ import {
   type UserOrganization,
 } from "@/lib/tenancy";
 import { SignOutButton } from "../../sign-out-button";
+import { NotificationBell } from "../notification-bell";
 import { MembersClient, type MemberSummary } from "./members-client";
 
 export default function OrganizationMembersPage({
@@ -108,7 +109,10 @@ async function OrganizationMembersWorkspace({
         >
           ← Back to {organization.name}
         </Link>
-        <SignOutButton />
+        <div className="flex items-center gap-3">
+          <NotificationBell organizationSlug={organization.slug} />
+          <SignOutButton />
+        </div>
       </div>
 
       <header className="flex items-center justify-between gap-4">

@@ -55,6 +55,10 @@ type SupervisionTaskDto = {
   assignee: TaskAssigneeDto | null;
   deadline: string | null;
   approvalRequired: boolean;
+  sourceMeetingId: string | null;
+  sourceMeetingTitle: string | null;
+  sourceActionItemId: string | null;
+  sourceActionItemTitle: string | null;
   isBlocked: boolean;
   blockerCount: number;
   dependencyCount: number;
@@ -110,6 +114,10 @@ function toSupervisionTaskDto(item: EnrichedTaskItem): SupervisionTaskDto {
     assignee: serializeTaskAssignee(item.assignee),
     deadline: item.deadline ? item.deadline.toISOString() : null,
     approvalRequired: item.approvalRequired,
+    sourceMeetingId: item.sourceMeetingId,
+    sourceMeetingTitle: item.sourceMeetingTitle,
+    sourceActionItemId: item.sourceActionItemId,
+    sourceActionItemTitle: item.sourceActionItemTitle,
     isBlocked: item.isBlocked,
     blockerCount: item.blockerCount,
     dependencyCount: item.dependencyCount,

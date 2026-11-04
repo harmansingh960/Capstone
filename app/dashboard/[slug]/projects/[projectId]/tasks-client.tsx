@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type SubmitEvent } from "react";
 import type {
@@ -58,6 +59,18 @@ const ACTIVITY_FIELD_LABELS: Record<string, string> = {
   prerequisiteTaskId: "Prerequisite",
   submissionNumber: "Submission",
   decision: "Review decision",
+  meetingDate: "Meeting date",
+  projectId: "Project",
+  participantId: "Participant",
+  notes: "Notes",
+  discussionPoint: "Discussion point",
+  meetingDecision: "Decision",
+  ownerId: "Owner",
+  targetDate: "Target date",
+  archived: "Archived",
+  linkedTaskId: "Linked task",
+  sourceMeetingId: "Source meeting",
+  sourceActionItemId: "Source action item",
 };
 
 const ACTIVITY_EVENT_BADGES: Record<
@@ -154,6 +167,66 @@ const ACTIVITY_EVENT_BADGES: Record<
     className:
       "rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
   },
+  "meeting.created": {
+    label: "Meeting Created",
+    className:
+      "rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  "meeting.updated": {
+    label: "Meeting Updated",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  "meeting.archived": {
+    label: "Meeting Archived",
+    className:
+      "rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  },
+  "meeting.unarchived": {
+    label: "Meeting Unarchived",
+    className:
+      "rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  "meeting.participant_added": {
+    label: "Participant Added",
+    className:
+      "rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300",
+  },
+  "meeting.participant_removed": {
+    label: "Participant Removed",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  "meeting.notes_updated": {
+    label: "Meeting Notes Updated",
+    className:
+      "rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
+  },
+  "meeting.decision_recorded": {
+    label: "Decision Recorded",
+    className:
+      "rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
+  },
+  "action_item.created": {
+    label: "Action Item Created",
+    className:
+      "rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300",
+  },
+  "action_item.updated": {
+    label: "Action Item Updated",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  "action_item.status_changed": {
+    label: "Action Item Status",
+    className:
+      "rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-300",
+  },
+  "action_item.converted_to_task": {
+    label: "Converted to Task",
+    className:
+      "rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-800 dark:border-purple-800 dark:bg-purple-950/60 dark:text-purple-300",
+  },
 };
 
 export type DeliverableSummary = {
@@ -203,6 +276,10 @@ export type TaskSummary = {
   assigneeId: string | null;
   deadline: string | null;
   approvalRequired: boolean;
+  sourceMeetingId?: string | null;
+  sourceMeetingTitle?: string | null;
+  sourceActionItemId?: string | null;
+  sourceActionItemTitle?: string | null;
   // Dependency fields – populated by GET /tasks and PATCH /tasks/[id]
   isBlocked: boolean;
   blockerCount: number;
@@ -3084,6 +3161,26 @@ export function TasksClient({
                 {typeof task.daysSinceActivity === "number"
                   ? ` (${task.daysSinceActivity}d ago)`
                   : ""}
+              </span>
+            )}
+            {task.sourceMeetingId && (
+              <span
+                data-testid={`task-source-meeting-${task.id}`}
+                className="inline-flex flex-wrap items-center gap-1 rounded border border-purple-200 bg-purple-50/70 px-2 py-0.5 text-purple-900 dark:border-purple-900/60 dark:bg-purple-950/30 dark:text-purple-200"
+              >
+                <span>From meeting:</span>
+                <Link
+                  href={`/dashboard/${encodeURIComponent(organizationSlug)}/meetings/${encodeURIComponent(task.sourceMeetingId)}`}
+                  data-testid={`task-source-meeting-link-${task.id}`}
+                  className="font-medium underline hover:text-purple-700 dark:hover:text-purple-100"
+                >
+                  {task.sourceMeetingTitle ?? "Source meeting"}
+                </Link>
+                {task.sourceActionItemTitle && (
+                  <span className="text-purple-700 dark:text-purple-300">
+                    (Action item: &ldquo;{task.sourceActionItemTitle}&rdquo;)
+                  </span>
+                )}
               </span>
             )}
           </div>

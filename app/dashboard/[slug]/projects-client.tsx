@@ -48,6 +48,18 @@ const ORG_FIELD_LABELS: Record<string, string> = {
   prerequisiteTaskId: "Prerequisite",
   submissionNumber: "Submission",
   decision: "Review decision",
+  meetingDate: "Meeting date",
+  projectId: "Project",
+  participantId: "Participant",
+  notes: "Notes",
+  discussionPoint: "Discussion point",
+  meetingDecision: "Decision",
+  ownerId: "Owner",
+  targetDate: "Target date",
+  archived: "Archived",
+  linkedTaskId: "Linked task",
+  sourceMeetingId: "Source meeting",
+  sourceActionItemId: "Source action item",
 };
 
 function formatActivityTimestamp(isoDate: string): string {
