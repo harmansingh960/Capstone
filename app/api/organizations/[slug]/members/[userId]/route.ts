@@ -2,6 +2,8 @@ import { connection } from "next/server";
 import type { MembershipRole } from "@/lib/schema";
 import {
   getOrganizationBySlug,
+  isElevatedMembershipRole,
+  isPlatformAdmin,
   removeOrganizationMember,
   requireSessionUserId,
   TenantAccessError,
@@ -113,6 +115,20 @@ export async function PATCH(
       }
     }
 
+    const requestedRole = (body as Record<string, unknown>).role;
+    if (isElevatedMembershipRole(requestedRole)) {
+      const isPlatform = await isPlatformAdmin(request.headers);
+      if (!isPlatform) {
+        return Response.json(
+          {
+            error:
+              "Only the platform administrator can grant manager or admin roles.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const updatedMember = await updateOrganizationMemberRole(
       organization._id,
       {
@@ -147,7 +163,11 @@ export async function PATCH(
         );
       }
       return Response.json(
-        { error: "Only organization admins can update member roles." },
+        {
+          error:
+            error.message ||
+            "Only organization admins can update member roles.",
+        },
         { status: 403 },
       );
     }

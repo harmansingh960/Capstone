@@ -141,6 +141,7 @@ export function ProjectsClient({
 }: ProjectsClientProps) {
   const router = useRouter();
   const canManage = role === "admin" || role === "manager";
+  const canViewOrgActivity = role === "admin" || role === "manager";
 
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
@@ -169,7 +170,7 @@ export function ProjectsClient({
   const [orgActivityCursor, setOrgActivityCursor] = useState<string | null>(
     null,
   );
-  const [orgActivityLoading, setOrgActivityLoading] = useState(true);
+  const [orgActivityLoading, setOrgActivityLoading] = useState(canViewOrgActivity);
   const [orgActivityLoadingMore, setOrgActivityLoadingMore] = useState(false);
   const [orgActivityError, setOrgActivityError] = useState<string | null>(null);
 
@@ -177,6 +178,7 @@ export function ProjectsClient({
   const orgActivityApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/activity`;
 
   const refreshOrgActivity = useCallback(async () => {
+    if (!canViewOrgActivity) return;
     setOrgActivityLoading(true);
     setOrgActivityError(null);
     try {
@@ -214,10 +216,10 @@ export function ProjectsClient({
     } finally {
       setOrgActivityLoading(false);
     }
-  }, [orgActivityApiUrl, router]);
+  }, [canViewOrgActivity, orgActivityApiUrl, router]);
 
   const loadMoreOrgActivity = useCallback(async () => {
-    if (!orgActivityCursor || orgActivityLoadingMore) return;
+    if (!canViewOrgActivity || !orgActivityCursor || orgActivityLoadingMore) return;
     setOrgActivityLoadingMore(true);
     setOrgActivityError(null);
 
@@ -274,9 +276,13 @@ export function ProjectsClient({
     } finally {
       setOrgActivityLoadingMore(false);
     }
-  }, [orgActivityApiUrl, orgActivityCursor, orgActivityLoadingMore, router]);
+  }, [canViewOrgActivity, orgActivityApiUrl, orgActivityCursor, orgActivityLoadingMore, router]);
 
   useEffect(() => {
+    if (!canViewOrgActivity) {
+      return;
+    }
+
     let cancelled = false;
 
     async function fetchInitialOrgActivity() {
@@ -333,7 +339,7 @@ export function ProjectsClient({
     return () => {
       cancelled = true;
     };
-  }, [orgActivityApiUrl, router]);
+  }, [canViewOrgActivity, orgActivityApiUrl, router]);
 
   async function refreshProjects(filter: StatusFilter) {
     setListLoading(true);
@@ -827,128 +833,130 @@ export function ProjectsClient({
         </form>
       )}
 
-      <section
-        aria-label="Organization Activity"
-        className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-medium">Organization Activity</h2>
-            <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-              {orgActivities.length}
-            </span>
+      {canViewOrgActivity && (
+        <section
+          aria-label="Organization Activity"
+          className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-medium">Organization Activity</h2>
+              <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                {orgActivities.length}
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={orgActivityLoading || orgActivityLoadingMore}
+              onClick={() => void refreshOrgActivity()}
+              className="rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {orgActivityLoading
+                ? "Loading…"
+                : orgActivityError
+                  ? "Retry"
+                  : "Refresh"}
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={orgActivityLoading || orgActivityLoadingMore}
-            onClick={() => void refreshOrgActivity()}
-            className="rounded border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {orgActivityLoading
-              ? "Loading…"
-              : orgActivityError
-                ? "Retry"
-                : "Refresh"}
-          </button>
-        </div>
 
-        {orgActivityError && (
-          <p role="alert" className="text-sm text-red-600">
-            {orgActivityError}
-          </p>
-        )}
+          {orgActivityError && (
+            <p role="alert" className="text-sm text-red-600">
+              {orgActivityError}
+            </p>
+          )}
 
-        {orgActivityLoading && orgActivities.length === 0 ? (
-          <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
-            Loading organization activity…
-          </p>
-        ) : orgActivities.length === 0 ? (
-          <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
-            No activity recorded for this organization yet.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <ol className="flex flex-col gap-2">
-              {orgActivities.map((entry) => (
-                <li
-                  key={entry.id}
-                  className="flex flex-col gap-1.5 rounded border border-zinc-200/80 bg-zinc-50/70 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900/50"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {entry.summary}
-                    </span>
-                    <span className="text-zinc-500">
-                      {formatActivityTimestamp(entry.createdAt)}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-zinc-500">
-                    <span>
-                      By{" "}
-                      <strong className="font-normal text-zinc-700 dark:text-zinc-300">
-                        {entry.actor?.name ?? entry.actorId}
-                        {entry.actor?.role ? ` · ${entry.actor.role}` : ""}
-                      </strong>
-                    </span>
-                  </div>
-                  {Array.isArray(entry.changes) && entry.changes.length > 0 && (
-                    <ul className="mt-0.5 flex flex-col gap-1 border-l-2 border-zinc-200 pl-2.5 text-[11px] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-                      {entry.changes.map((change, idx) => {
-                        const fieldLabel =
-                          ORG_FIELD_LABELS[change.field] ?? change.field;
-                        const isTransition =
-                          change.before !== null && change.after !== null;
-                        return (
-                          <li
-                            key={`${entry.id}-${change.field}-${idx}`}
-                            className="flex flex-wrap items-center gap-1"
-                          >
-                            <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                              {fieldLabel}:
-                            </span>
-                            {isTransition ||
-                            entry.eventType.endsWith("_changed") ||
-                            entry.eventType.endsWith(".updated") ||
-                            entry.eventType === "project.archived" ||
-                            entry.eventType === "project.unarchived" ||
-                            entry.eventType === "review.decision_updated" ? (
-                              <>
-                                <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-zinc-700 line-through dark:bg-zinc-800 dark:text-zinc-400">
-                                  {change.beforeDisplay}
-                                </span>
-                                <span aria-hidden="true">→</span>
-                                <span className="rounded bg-emerald-100/70 px-1.5 py-0.5 font-medium text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+          {orgActivityLoading && orgActivities.length === 0 ? (
+            <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+              Loading organization activity…
+            </p>
+          ) : orgActivities.length === 0 ? (
+            <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+              No activity recorded for this organization yet.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <ol className="flex flex-col gap-2">
+                {orgActivities.map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="flex flex-col gap-1.5 rounded border border-zinc-200/80 bg-zinc-50/70 p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900/50"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                        {entry.summary}
+                      </span>
+                      <span className="text-zinc-500">
+                        {formatActivityTimestamp(entry.createdAt)}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-zinc-500">
+                      <span>
+                        By{" "}
+                        <strong className="font-normal text-zinc-700 dark:text-zinc-300">
+                          {entry.actor?.name ?? entry.actorId}
+                          {entry.actor?.role ? ` · ${entry.actor.role}` : ""}
+                        </strong>
+                      </span>
+                    </div>
+                    {Array.isArray(entry.changes) && entry.changes.length > 0 && (
+                      <ul className="mt-0.5 flex flex-col gap-1 border-l-2 border-zinc-200 pl-2.5 text-[11px] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+                        {entry.changes.map((change, idx) => {
+                          const fieldLabel =
+                            ORG_FIELD_LABELS[change.field] ?? change.field;
+                          const isTransition =
+                            change.before !== null && change.after !== null;
+                          return (
+                            <li
+                              key={`${entry.id}-${change.field}-${idx}`}
+                              className="flex flex-wrap items-center gap-1"
+                            >
+                              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                {fieldLabel}:
+                              </span>
+                              {isTransition ||
+                              entry.eventType.endsWith("_changed") ||
+                              entry.eventType.endsWith(".updated") ||
+                              entry.eventType === "project.archived" ||
+                              entry.eventType === "project.unarchived" ||
+                              entry.eventType === "review.decision_updated" ? (
+                                <>
+                                  <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-zinc-700 line-through dark:bg-zinc-800 dark:text-zinc-400">
+                                    {change.beforeDisplay}
+                                  </span>
+                                  <span aria-hidden="true">→</span>
+                                  <span className="rounded bg-emerald-100/70 px-1.5 py-0.5 font-medium text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                    {change.afterDisplay}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="rounded bg-zinc-200/60 px-1.5 py-0.5 font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
                                   {change.afterDisplay}
                                 </span>
-                              </>
-                            ) : (
-                              <span className="rounded bg-zinc-200/60 px-1.5 py-0.5 font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
-                                {change.afterDisplay}
-                              </span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ol>
-            {orgActivityCursor && (
-              <button
-                type="button"
-                disabled={orgActivityLoadingMore}
-                onClick={() => void loadMoreOrgActivity()}
-                className="self-start rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                {orgActivityLoadingMore
-                  ? "Loading more…"
-                  : "Load more activity"}
-              </button>
-            )}
-          </div>
-        )}
-      </section>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              {orgActivityCursor && (
+                <button
+                  type="button"
+                  disabled={orgActivityLoadingMore}
+                  onClick={() => void loadMoreOrgActivity()}
+                  className="self-start rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  {orgActivityLoadingMore
+                    ? "Loading more…"
+                    : "Load more activity"}
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

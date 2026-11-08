@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
+import { isPlatformAdmin } from "@/lib/tenancy";
 import type { MembershipRole } from "@/lib/schema";
 import { CreateOrganizationForm } from "./create-organization-form";
 import { SignOutButton } from "./sign-out-button";
@@ -13,6 +14,8 @@ type OrganizationSummary = {
   slug: string;
   role: MembershipRole;
 };
+
+export const instant = false;
 
 export default function DashboardPage() {
   return (
@@ -40,7 +43,7 @@ async function fetchOrganizations(requestHeaders: Headers): Promise<Organization
   });
 
   if (response.status === 401) {
-    redirect("/login");
+    redirect("/member/login");
   }
   if (!response.ok) {
     return [];
@@ -53,9 +56,12 @@ async function fetchOrganizations(requestHeaders: Headers): Promise<Organization
 async function Dashboard() {
   const requestHeaders = await headers();
   const session = await getAuth().api.getSession({ headers: requestHeaders });
-  if (!session) redirect("/login");
+  if (!session) redirect("/member/login");
 
-  const organizations = await fetchOrganizations(requestHeaders);
+  const [organizations, userIsPlatformAdmin] = await Promise.all([
+    fetchOrganizations(requestHeaders),
+    isPlatformAdmin(requestHeaders),
+  ]);
   const { name, email } = session.user;
 
   return (
@@ -74,7 +80,9 @@ async function Dashboard() {
         <h2 className="text-lg font-medium">Your organizations</h2>
         {organizations.length === 0 ? (
           <p className="rounded border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
-            You do not belong to any organizations yet. Create one below to get started.
+            {userIsPlatformAdmin
+              ? "You do not belong to any organizations yet. Create one below to get started."
+              : "You do not belong to any organizations yet. Please contact the platform administrator to be assigned to an organization."}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -98,7 +106,7 @@ async function Dashboard() {
         )}
       </section>
 
-      <CreateOrganizationForm />
+      {userIsPlatformAdmin && <CreateOrganizationForm />}
     </>
   );
 }

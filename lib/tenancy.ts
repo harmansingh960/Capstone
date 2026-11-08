@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { headers } from "next/headers";
 import { ObjectId, type ClientSession } from "mongodb";
 import { getAuth } from "@/lib/auth";
@@ -9,19 +10,27 @@ import {
   ACTION_ITEM_STATUSES,
   ACTIVITY_EVENT_TYPES,
   ACTIVITY_TARGET_TYPES,
+  BLOCKER_STATUSES,
+  BLOCKER_TYPES,
   MEETING_STATUSES,
   MEMBERSHIP_ROLES,
   PROJECT_STATUSES,
   REVIEW_DECISIONS,
   TASK_PRIORITIES,
   TASK_STATUSES,
+  PLATFORM_ROLES,
+  type PlatformRole,
   type ActionItemStatus,
   type ActivityDoc,
   type ActivityEventType,
   type ActivityFieldChange,
   type ActivityFieldValue,
   type ActivityTargetType,
+  type BlockerDoc,
+  type BlockerStatus,
+  type BlockerType,
   type DeliverableDoc,
+  type FileDoc,
   type MeetingActionItemDoc,
   type MeetingDecisionDoc,
   type MeetingDiscussionPointDoc,
@@ -40,6 +49,7 @@ import {
   type TaskDoc,
   type TaskPriority,
   type TaskStatus,
+  type UserDoc,
   type UserId,
 } from "@/lib/schema";
 
@@ -47,7 +57,10 @@ export {
   ACTION_ITEM_STATUSES,
   ACTIVITY_EVENT_TYPES,
   ACTIVITY_TARGET_TYPES,
+  BLOCKER_STATUSES,
+  BLOCKER_TYPES,
   MEETING_STATUSES,
+  PLATFORM_ROLES,
   TASK_DELIVERABLE_STATUSES,
   type ActionItemStatus,
   type ActivityDoc,
@@ -55,11 +68,15 @@ export {
   type ActivityFieldChange,
   type ActivityFieldValue,
   type ActivityTargetType,
+  type BlockerDoc,
+  type BlockerStatus,
+  type BlockerType,
   type MeetingActionItemDoc,
   type MeetingDecisionDoc,
   type MeetingDiscussionPointDoc,
   type MeetingDoc,
   type MeetingStatus,
+  type PlatformRole,
   type TaskDeliverableStatus,
 };
 
@@ -136,9 +153,35 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 const USER_ID_MIN_LENGTH = 1;
 const USER_ID_MAX_LENGTH = 128;
 
+function normalizeUserIdValue(value: unknown): UserId | null {
+  if (value instanceof ObjectId) {
+    return value.toHexString();
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (
+      trimmed.length >= USER_ID_MIN_LENGTH &&
+      trimmed.length <= USER_ID_MAX_LENGTH
+    ) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+function buildUserIdFilter(
+  userId: UserId,
+): UserId | { $in: Array<UserId | ObjectId> } {
+  const parsed = parseObjectId(userId);
+  return parsed ? { $in: [userId, parsed] } : userId;
+}
+
 function validateAssigneeId(assigneeId: unknown): UserId | null {
   if (assigneeId === null) {
     return null;
+  }
+  if (assigneeId instanceof ObjectId) {
+    return assigneeId.toHexString();
   }
   if (typeof assigneeId !== "string") {
     throw new TenantValidationError(
@@ -164,10 +207,70 @@ function validateAssigneeId(assigneeId: unknown): UserId | null {
 export async function requireSessionUserId(requestHeaders?: Headers): Promise<UserId> {
   const resolvedHeaders = requestHeaders ?? (await headers());
   const session = await getAuth().api.getSession({ headers: resolvedHeaders });
+  const userId = normalizeUserIdValue(session?.user?.id);
+  if (!userId) {
+    throw new TenantAccessError("Authentication required.");
+  }
+  return userId;
+}
+
+const BETTER_AUTH_USER_COLLECTION = "user";
+
+/**
+ * Resolves whether the current session user holds the global "platform_admin" role.
+ * Returns false if unauthenticated or if the user is not a platform admin.
+ * Fallback to direct database lookup ensures newly bootstrapped platform admins
+ * take effect immediately even if their current session cookies lack the updated token state.
+ */
+export async function isPlatformAdmin(requestHeaders?: Headers): Promise<boolean> {
+  const resolvedHeaders = requestHeaders ?? (await headers());
+  const session = await getAuth().api.getSession({ headers: resolvedHeaders });
+  if (!session?.user?.id) {
+    return false;
+  }
+  const user = session.user as { platformRole?: string | null } | undefined;
+  if (user?.platformRole === "platform_admin") {
+    return true;
+  }
+
+  const parsedId = parseObjectId(session.user.id);
+  const idMatchers: Array<ObjectId | string> = [session.user.id];
+  if (parsedId) {
+    idMatchers.push(parsedId);
+  }
+
+  const db = await getDb();
+  const userDoc = await db
+    .collection<UserDoc>(BETTER_AUTH_USER_COLLECTION)
+    .findOne(
+      { _id: { $in: idMatchers } },
+      { projection: { platformRole: 1 } },
+    );
+
+  return userDoc?.platformRole === "platform_admin";
+}
+
+/**
+ * Asserts that the authenticated session user is the global platform admin.
+ * Throws TenantAccessError if unauthenticated ("Authentication required.")
+ * or if the user is not a platform admin ("Only the platform administrator can create organizations.").
+ */
+export async function requirePlatformAdmin(
+  requestHeaders?: Headers,
+  customForbiddenMessage = "Only the platform administrator can create organizations.",
+): Promise<UserId> {
+  const resolvedHeaders = requestHeaders ?? (await headers());
+  const session = await getAuth().api.getSession({ headers: resolvedHeaders });
   const userId = session?.user?.id;
   if (!userId) {
     throw new TenantAccessError("Authentication required.");
   }
+
+  const isAdmin = await isPlatformAdmin(resolvedHeaders);
+  if (!isAdmin) {
+    throw new TenantAccessError(customForbiddenMessage);
+  }
+
   return userId;
 }
 
@@ -184,17 +287,23 @@ export async function requireMembership(
   const userId = await requireSessionUserId(requestHeaders);
   requireObjectId(organizationId, "organizationId");
   const { memberships } = await getCollections();
-  const membership = await memberships.findOne({ organizationId, userId });
+  const membership = await memberships.findOne({
+    organizationId,
+    userId: buildUserIdFilter(userId) as unknown as UserId,
+  });
   if (!membership || (allowedRoles && !allowedRoles.includes(membership.role))) {
     throw new TenantAccessError();
   }
-  return membership;
+  return {
+    ...membership,
+    userId: normalizeUserIdValue(membership.userId) ?? userId,
+  };
 }
 
 export const ADMIN_ROLES: readonly MembershipRole[] = ["admin"];
 export const MANAGER_ROLES: readonly MembershipRole[] = ["admin", "manager"];
 
-function isManagerRole(role: MembershipRole): boolean {
+export function isManagerRole(role: MembershipRole): boolean {
   return MANAGER_ROLES.includes(role);
 }
 
@@ -206,11 +315,11 @@ function sameNullableObjectId(a: ObjectId | null, b: ObjectId | null): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-document tenant validators (module-private; require verified membership)
+// Cross-document tenant validators (require verified membership)
 // ---------------------------------------------------------------------------
 
 /** Verifies that `projectId` exists and belongs to `membership.organizationId`. */
-async function requireProjectInOrg(
+export async function requireProjectInOrg(
   membership: MembershipDoc,
   projectId: ObjectId,
 ): Promise<ProjectDoc> {
@@ -268,19 +377,22 @@ async function requireAssigneeInOrg(
   const { memberships } = await getCollections();
   const assigneeMembership = await memberships.findOne({
     organizationId: membership.organizationId,
-    userId: validatedAssigneeId,
+    userId: buildUserIdFilter(validatedAssigneeId) as unknown as UserId,
   });
   if (!assigneeMembership) {
     throw new TenantValidationError("Assignee is not a member of this organization.");
   }
-  return assigneeMembership;
+  return {
+    ...assigneeMembership,
+    userId: normalizeUserIdValue(assigneeMembership.userId) ?? validatedAssigneeId,
+  };
 }
 
 /**
  * Verifies that `taskId` exists in `membership.organizationId` and belongs
  * to `projectId`.
  */
-async function requireTaskInProjectAndOrg(
+export async function requireTaskInProjectAndOrg(
   membership: MembershipDoc,
   projectId: ObjectId,
   taskId: ObjectId,
@@ -416,15 +528,15 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 /**
- * Creates a new organization owned by the authenticated session user and
+ * Creates a new organization owned by the authenticated platform admin and
  * inserts their initial `"admin"` membership. Cleans up the organization
- * document if the membership insert fails.
+ * document if the membership insert fails. Restricted strictly to the platform admin.
  */
 export async function createOrganization(
   input: CreateOrganizationInput,
   requestHeaders?: Headers,
 ): Promise<UserOrganization> {
-  const userId = await requireSessionUserId(requestHeaders);
+  const userId = await requirePlatformAdmin(requestHeaders);
 
   if (typeof input.name !== "string") {
     throw new TenantValidationError("Organization name is required.");
@@ -564,8 +676,17 @@ export async function getOrganizationBySlug(
   return { ...organization, role: membership.role };
 }
 
-export const ADDABLE_MEMBERSHIP_ROLES = ["manager", "member"] as const;
+export const ADDABLE_MEMBERSHIP_ROLES = ["admin", "manager", "member"] as const;
 export type AddableMembershipRole = (typeof ADDABLE_MEMBERSHIP_ROLES)[number];
+
+export const ELEVATED_MEMBERSHIP_ROLES = ["admin", "manager"] as const;
+export type ElevatedMembershipRole = (typeof ELEVATED_MEMBERSHIP_ROLES)[number];
+
+export function isElevatedMembershipRole(
+  role: unknown,
+): role is ElevatedMembershipRole {
+  return role === "admin" || role === "manager";
+}
 
 export type OrganizationMember = {
   userId: UserId;
@@ -593,7 +714,6 @@ export type RemoveOrganizationMemberInput = {
   userId: UserId;
 };
 
-const BETTER_AUTH_USER_COLLECTION = "user";
 const EMAIL_MAX_LENGTH = 254;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LAST_ADMIN_PROTECTION_MESSAGE =
@@ -682,7 +802,12 @@ async function lookupRegisteredUsersByIds(
   const docs = await db
     .collection<BetterAuthUserProjection>(BETTER_AUTH_USER_COLLECTION)
     .find(
-      { _id: { $in: idMatchers } },
+      {
+        $or: [
+          { _id: { $in: idMatchers } },
+          { id: { $in: uniqueUserIds } },
+        ],
+      },
       { projection: { _id: 1, id: 1, name: 1, email: 1 } },
     )
     .toArray();
@@ -691,6 +816,9 @@ async function lookupRegisteredUsersByIds(
     const profile = toSafeUserProfile(doc);
     if (profile) {
       result.set(profile.userId, { name: profile.name, email: profile.email });
+      if (typeof doc.id === "string" && doc.id.trim() !== "") {
+        result.set(doc.id.trim(), { name: profile.name, email: profile.email });
+      }
     }
   }
 
@@ -817,7 +945,7 @@ const ACTIVITY_REVIEW_LABELS: Record<ReviewDecision, string> = {
   changes_requested: "Changes requested",
 };
 
-type BuildActivityInput = {
+export type BuildActivityInput = {
   organizationId: ObjectId;
   projectId: ObjectId | null;
   taskId: ObjectId | null;
@@ -831,7 +959,7 @@ type BuildActivityInput = {
   createdAt?: Date;
 };
 
-function buildActivityDoc(input: BuildActivityInput): ActivityDoc {
+export function buildActivityDoc(input: BuildActivityInput): ActivityDoc {
   const rawSummary = input.summary.trim();
   const summary =
     rawSummary.length > 1000
@@ -910,11 +1038,16 @@ export async function listOrganizationMembers(
     return [];
   }
 
+  const normalizedMemberships = orgMemberships.map((doc) => ({
+    userId: normalizeUserIdValue(doc.userId) ?? String(doc.userId),
+    role: doc.role,
+  }));
+
   const profilesById = await lookupRegisteredUsersByIds(
-    orgMemberships.map((doc) => doc.userId),
+    normalizedMemberships.map((doc) => doc.userId),
   );
 
-  return orgMemberships.map((doc) => {
+  return normalizedMemberships.map((doc) => {
     const profile = profilesById.get(doc.userId);
     return {
       userId: doc.userId,
@@ -926,10 +1059,12 @@ export async function listOrganizationMembers(
 }
 
 /**
- * Adds an existing registered user to `organizationId` with role `manager` or
- * `member`. Restricted to organization `admin`s. Looks up the user by email in
- * Better Auth's `user` collection and derives `userId` strictly from the matched
- * database record (never trusting a caller-supplied user ID).
+ * Adds an existing registered user to `organizationId`. Organization `manager`s
+ * can add members with role `member` only. Organization `admin`s can add `member`s;
+ * elevated roles (`manager` and `admin`) strictly require the global platform
+ * administrator. Looks up the user by email in Better Auth's `user` collection
+ * and derives `userId` strictly from the matched database record (never trusting
+ * a caller-supplied user ID).
  */
 export async function addOrganizationMember(
   organizationId: ObjectId,
@@ -977,14 +1112,29 @@ export async function addOrganizationMember(
     throw new TenantValidationError("Member input must be a plain object.");
   }
 
-  const adminMembership = await requireMembership(
+  const callerMembership = await requireMembership(
     organizationId,
-    ADMIN_ROLES,
+    ["admin", "manager"],
     resolvedHeaders,
   );
 
   const normalizedEmail = validateMemberEmail(rawEmail);
   const role = validateAddableMemberRole(rawRole);
+
+  if (callerMembership.role === "manager" && role !== "member") {
+    throw new TenantAccessError(
+      "Managers can only add members with the member role.",
+    );
+  }
+
+  if (isElevatedMembershipRole(role)) {
+    const isPlatform = await isPlatformAdmin(resolvedHeaders);
+    if (!isPlatform) {
+      throw new TenantAccessError(
+        "Only the platform administrator can grant manager or admin roles.",
+      );
+    }
+  }
 
   const registeredUser = await findRegisteredUserByEmail(normalizedEmail);
   if (!registeredUser) {
@@ -993,9 +1143,9 @@ export async function addOrganizationMember(
     );
   }
 
-  const { memberships } = await getCollections();
+  const { memberships, organizations } = await getCollections();
   const existingMembership = await memberships.findOne({
-    organizationId: adminMembership.organizationId,
+    organizationId: callerMembership.organizationId,
     userId: registeredUser.userId,
   });
   if (existingMembership) {
@@ -1007,7 +1157,7 @@ export async function addOrganizationMember(
   const now = new Date();
   const membershipDoc: MembershipDoc = {
     _id: new ObjectId(),
-    organizationId: adminMembership.organizationId,
+    organizationId: callerMembership.organizationId,
     userId: registeredUser.userId,
     role,
     createdAt: now,
@@ -1025,6 +1175,58 @@ export async function addOrganizationMember(
     throw error;
   }
 
+  if (callerMembership.role === "manager") {
+    try {
+      const [orgDoc, managerProfiles, adminMemberships] = await Promise.all([
+        organizations.findOne({ _id: callerMembership.organizationId }),
+        lookupRegisteredUsersByIds([callerMembership.userId]),
+        memberships
+          .find({
+            organizationId: callerMembership.organizationId,
+            role: "admin",
+          })
+          .toArray(),
+      ]);
+
+      const orgName = orgDoc?.name ?? "the organization";
+      const orgSlug = orgDoc?.slug ?? "";
+      const managerProfile = managerProfiles.get(callerMembership.userId);
+      const managerDisplayName =
+        managerProfile?.name?.trim() ||
+        managerProfile?.email?.trim() ||
+        "A manager";
+      const memberDisplayName =
+        registeredUser.name?.trim() ||
+        registeredUser.email?.trim() ||
+        registeredUser.email;
+
+      const notificationUrl = orgSlug
+        ? `/dashboard/${encodeURIComponent(orgSlug)}/members`
+        : null;
+
+      for (const admin of adminMemberships) {
+        if (admin.userId === callerMembership.userId) {
+          continue;
+        }
+        await createNotificationSafe({
+          organizationId: callerMembership.organizationId,
+          recipientId: admin.userId,
+          type: "member.added",
+          title: `New member added to ${orgName}`,
+          message: `${managerDisplayName} added ${memberDisplayName} to ${orgName} as a member.`,
+          url: notificationUrl,
+          actorId: callerMembership.userId,
+          dedupeKey: `member.added:${callerMembership.organizationId.toHexString()}:${registeredUser.userId}:${membershipDoc._id.toHexString()}`,
+        });
+      }
+    } catch (notifyError) {
+      console.warn(
+        "[tenancy] Failed to notify admins of added member:",
+        notifyError,
+      );
+    }
+  }
+
   return {
     ...membershipDoc,
     name: registeredUser.name,
@@ -1034,11 +1236,11 @@ export async function addOrganizationMember(
 
 /**
  * Updates an organization member's role (`admin`, `manager`, or `member`).
- * Restricted to organization `admin`s (preventing managers or members from
- * granting themselves admin privileges). Serializes admin demotions per
- * organization so the last admin of an organization can never be demoted, even
- * under concurrent requests. Returns `null` if `userId` is not a member of the
- * organization.
+ * Restricted to organization `admin`s; elevated roles (`manager` and `admin`)
+ * strictly require the global platform administrator. Serializes admin
+ * demotions per organization so the last admin of an organization can never
+ * be demoted, even under concurrent requests. Returns `null` if `userId` is
+ * not a member of the organization.
  */
 export async function updateOrganizationMemberRole(
   organizationId: ObjectId,
@@ -1106,6 +1308,15 @@ export async function updateOrganizationMemberRole(
   const actingUserId = adminMembership.userId;
   const targetUserId = validateMemberUserId(rawUserId);
   const newRole = validateMembershipRole(rawRole);
+
+  if (isElevatedMembershipRole(newRole)) {
+    const isPlatform = await isPlatformAdmin(resolvedHeaders);
+    if (!isPlatform) {
+      throw new TenantAccessError(
+        "Only the platform administrator can grant manager or admin roles.",
+      );
+    }
+  }
 
   const { organizations, memberships } = await getCollections();
 
@@ -1837,8 +2048,16 @@ function validateTaskApprovalRequired(approvalRequired: unknown): boolean {
 function normalizeTaskDoc(
   doc: Omit<TaskDoc, "approvalRequired"> & { approvalRequired?: boolean },
 ): TaskDoc {
+  const normalizedAssigneeId = normalizeUserIdValue(
+    (doc as { assigneeId?: unknown }).assigneeId,
+  );
+  const normalizedCreatedBy =
+    normalizeUserIdValue((doc as { createdBy?: unknown }).createdBy) ??
+    doc.createdBy;
   return {
     ...doc,
+    assigneeId: normalizedAssigneeId,
+    createdBy: normalizedCreatedBy,
     approvalRequired: doc.approvalRequired === true,
     sourceMeetingId: doc.sourceMeetingId ?? null,
     sourceActionItemId: doc.sourceActionItemId ?? null,
@@ -1959,7 +2178,12 @@ export async function createTask(
       ? null
       : validateNullableObjectId(input.parentTaskId, "parentTaskId");
 
-  if (!isManager && parentTaskId === null) {
+  if (!isManager) {
+    if (parentTaskId !== null) {
+      throw new TenantAccessError(
+        "Only admins and managers can create subtasks.",
+      );
+    }
     throw new TenantAccessError(
       "Only admins and managers can create top-level project tasks.",
     );
@@ -1976,16 +2200,11 @@ export async function createTask(
   }
 
   if (parentTaskId !== null) {
-    const parentTask = await requireTopLevelParentTaskInProject(
+    await requireTopLevelParentTaskInProject(
       membership,
       project._id,
       parentTaskId,
     );
-    if (!isManager && parentTask.assigneeId !== membership.userId) {
-      throw new TenantAccessError(
-        "Members can only create subtasks under tasks assigned to them.",
-      );
-    }
   }
 
   const requestedAssigneeId =
@@ -1997,7 +2216,11 @@ export async function createTask(
   if (isManager) {
     assigneeId = requestedAssigneeId;
     if (assigneeId !== null) {
-      await requireAssigneeInOrg(membership, assigneeId);
+      const assigneeMembership = await requireAssigneeInOrg(
+        membership,
+        assigneeId,
+      );
+      assigneeId = assigneeMembership.userId;
     }
   } else {
     if (
@@ -2074,12 +2297,12 @@ export async function createTask(
       { field: "assigneeId", before: null, after: doc.assigneeId },
       ...(doc.deadline !== null
         ? [
-            {
-              field: "deadline",
-              before: null,
-              after: doc.deadline.toISOString(),
-            },
-          ]
+          {
+            field: "deadline",
+            before: null,
+            after: doc.deadline.toISOString(),
+          },
+        ]
         : []),
       {
         field: "approvalRequired",
@@ -2140,7 +2363,14 @@ export async function getTaskById(
     _id: taskId,
     organizationId: membership.organizationId,
   });
-  return doc ? normalizeTaskDoc(doc) : null;
+  if (!doc) {
+    return null;
+  }
+  const normalized = normalizeTaskDoc(doc);
+  if (!isManagerRole(membership.role) && normalized.assigneeId !== membership.userId) {
+    return null;
+  }
+  return normalized;
 }
 
 export async function listProjectTasks(
@@ -2261,16 +2491,56 @@ export async function listProjectTasks(
     projectId,
   };
 
-  if (filter?.parentTaskId !== undefined) {
-    mongoQuery.parentTaskId = parentTaskIdFilter;
-  } else if (hasTaskScope) {
-    if (taskScopeFilter === "top_level") {
-      mongoQuery.parentTaskId = null;
-    } else if (taskScopeFilter === "subtasks") {
+  const isManager = isManagerRole(membership.role);
+  const { tasks } = await getCollections();
+
+  if (!isManager) {
+    if (
+      hasAssigneeFilter &&
+      (assigneeIdFilter === null || assigneeIdFilter !== membership.userId)
+    ) {
+      throw new TenantAccessError("Members can only view tasks assigned to them.");
+    }
+    mongoQuery.assigneeId = buildUserIdFilter(membership.userId);
+
+    if (filter?.parentTaskId !== undefined) {
+      mongoQuery.parentTaskId = parentTaskIdFilter;
+    } else if (hasTaskScope && taskScopeFilter === "subtasks") {
       mongoQuery.parentTaskId = { $ne: null };
+    } else if (!hasTaskScope || taskScopeFilter === "top_level") {
+      const memberAssignedTasks = await tasks
+        .find(
+          {
+            organizationId: orgId,
+            projectId,
+            assigneeId: buildUserIdFilter(membership.userId) as unknown as UserId,
+          },
+          { projection: { _id: 1 } },
+        )
+        .toArray();
+      const memberTaskIdSet = memberAssignedTasks.map((t) => t._id);
+      mongoQuery.$or = [
+        { parentTaskId: null },
+        { parentTaskId: { $nin: memberTaskIdSet } },
+      ];
     }
   } else {
-    mongoQuery.parentTaskId = null;
+    if (filter?.parentTaskId !== undefined) {
+      mongoQuery.parentTaskId = parentTaskIdFilter;
+    } else if (hasTaskScope) {
+      if (taskScopeFilter === "top_level") {
+        mongoQuery.parentTaskId = null;
+      } else if (taskScopeFilter === "subtasks") {
+        mongoQuery.parentTaskId = { $ne: null };
+      }
+    } else {
+      mongoQuery.parentTaskId = null;
+    }
+
+    if (hasAssigneeFilter) {
+      mongoQuery.assigneeId =
+        assigneeIdFilter === null ? null : buildUserIdFilter(assigneeIdFilter);
+    }
   }
 
   if (statusFilter !== undefined) {
@@ -2278,9 +2548,6 @@ export async function listProjectTasks(
   }
   if (priorityFilter !== undefined) {
     mongoQuery.priority = priorityFilter;
-  }
-  if (hasAssigneeFilter) {
-    mongoQuery.assigneeId = assigneeIdFilter;
   }
   if (deadlineFromFilter || deadlineToFilter) {
     const deadlineCond: Record<string, Date> = {};
@@ -2293,7 +2560,6 @@ export async function listProjectTasks(
     mongoQuery.deadline = deadlineCond;
   }
 
-  const { tasks } = await getCollections();
   const docs = (
     await tasks
       .find(mongoQuery)
@@ -2328,9 +2594,9 @@ export async function listProjectTasks(
         : Promise.resolve(new Map<string, TaskDeliverableStatus | null>()),
       needsBlockers
         ? getOrgTasksBlockerSummariesInternal(
-            orgId,
-            docs.map((d) => d._id),
-          )
+          orgId,
+          docs.map((d) => d._id),
+        )
         : Promise.resolve(new Map<string, TaskBlockerSummary>()),
       needsStaleOrActivitySort
         ? getOrgTasksLastActivityMapInternal(orgId, docs)
@@ -2421,12 +2687,16 @@ export async function listSubtasks(
   if (!parentTask) {
     throw new TenantValidationError("Parent task does not belong to this organization.");
   }
+  const subtaskQuery: Record<string, unknown> = {
+    organizationId: orgId,
+    projectId: parentTask.projectId,
+    parentTaskId: parentTask._id,
+  };
+  if (!isManagerRole(membership.role)) {
+    subtaskQuery.assigneeId = buildUserIdFilter(membership.userId);
+  }
   const docs = await tasks
-    .find({
-      organizationId: orgId,
-      projectId: parentTask.projectId,
-      parentTaskId: parentTask._id,
-    })
+    .find(subtaskQuery)
     .sort({ createdAt: 1, _id: 1 })
     .toArray();
   return docs.map(normalizeTaskDoc);
@@ -2490,24 +2760,30 @@ export async function updateTask(
     : existing.parentTaskId;
   const parentChanged = !sameNullableObjectId(targetParentTaskId, existing.parentTaskId);
 
+  const existingAssigneeId = normalizeUserIdValue(existing.assigneeId);
   const validatedAssigneeId = hasAssigneeId
     ? validateAssigneeId(input.assigneeId)
-    : existing.assigneeId;
+    : existingAssigneeId;
   const assigneeChanged =
-    hasAssigneeId && validatedAssigneeId !== existing.assigneeId;
+    hasAssigneeId && validatedAssigneeId !== existingAssigneeId;
 
   const priorityOrDeadlineSupplied = hasPriority || hasDeadline;
 
   if (!isManager) {
-    if (existing.assigneeId !== membership.userId) {
+    if (existingAssigneeId !== membership.userId) {
       throw new TenantAccessError("Members can only modify tasks assigned to them.");
+    }
+    if (hasTitle || hasDescription) {
+      throw new TenantAccessError(
+        "Only admins and managers can edit task details.",
+      );
     }
     if (projectChanged || parentChanged) {
       throw new TenantAccessError(
         "Only admins and managers can change a task's project or parent hierarchy.",
       );
     }
-    if (assigneeChanged) {
+    if (hasAssigneeId || assigneeChanged) {
       throw new TenantAccessError("Only admins and managers can reassign tasks.");
     }
     if (priorityOrDeadlineSupplied) {
@@ -2611,7 +2887,11 @@ export async function updateTask(
   }
 
   if (hasAssigneeId && validatedAssigneeId !== null) {
-    await requireAssigneeInOrg(membership, validatedAssigneeId);
+    const assigneeMembership = await requireAssigneeInOrg(
+      membership,
+      validatedAssigneeId,
+    );
+    updates.assigneeId = assigneeMembership.userId;
   }
 
   const existingApprovalRequired = existing.approvalRequired === true;
@@ -2996,7 +3276,31 @@ function validateDeliverableDescription(description: unknown): string | null {
   return normalizeDescription(description);
 }
 
-function validateDeliverableUrl(url: unknown): string | null {
+/**
+ * Identifies if a given string represents a valid Google Drive or Google Docs sharing URL.
+ */
+export function isGoogleDriveUrl(rawUrl: string | null | undefined): boolean {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === "drive.google.com" ||
+      hostname === "docs.google.com" ||
+      hostname.endsWith(".drive.google.com") ||
+      hostname.endsWith(".docs.google.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateDeliverableUrl(url: unknown): string | null {
   if (url === undefined || url === null) {
     return null;
   }
@@ -3023,6 +3327,11 @@ function validateDeliverableUrl(url: unknown): string | null {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new TenantValidationError(
       "Deliverable URL must use the http or https protocol.",
+    );
+  }
+  if (parsed.username || parsed.password) {
+    throw new TenantValidationError(
+      "Deliverable URL must not include embedded authentication credentials.",
     );
   }
   return trimmed;
@@ -3084,6 +3393,11 @@ export type CreateDeliverableInput = {
   taskId: ObjectId;
   description?: string | null;
   url?: string | null;
+  fileIds?: string[] | null;
+};
+
+export type DeliverableWithFilesDoc = DeliverableDoc & {
+  files: FileDoc[];
 };
 
 export type CreateReviewInput = {
@@ -3106,7 +3420,7 @@ export async function createDeliverable(
   organizationId: ObjectId,
   input: CreateDeliverableInput,
   requestHeaders?: Headers,
-): Promise<DeliverableDoc> {
+): Promise<DeliverableWithFilesDoc> {
   const membership = await requireMembership(
     organizationId,
     undefined,
@@ -3144,13 +3458,31 @@ export async function createDeliverable(
     );
   }
 
-  const description = validateDeliverableDescription(input.description);
-  const url = validateDeliverableUrl(input.url);
-
-  if (description === null && url === null) {
-    throw new TenantValidationError(
-      "A deliverable must include a description or a URL.",
-    );
+  const fileObjectIds: ObjectId[] = [];
+  if (input.fileIds !== undefined && input.fileIds !== null) {
+    if (!Array.isArray(input.fileIds)) {
+      throw new TenantValidationError("fileIds must be an array of file IDs.");
+    }
+    if (input.fileIds.length > 10) {
+      throw new TenantValidationError(
+        "A deliverable submission cannot have more than 10 files.",
+      );
+    }
+    const seen = new Set<string>();
+    for (const idStr of input.fileIds) {
+      if (typeof idStr !== "string") {
+        throw new TenantValidationError("Each file ID must be a string.");
+      }
+      if (seen.has(idStr)) {
+        continue;
+      }
+      seen.add(idStr);
+      const parsed = parseObjectId(idStr);
+      if (!parsed) {
+        throw new TenantValidationError(`Invalid file ID: "${idStr}".`);
+      }
+      fileObjectIds.push(parsed);
+    }
   }
 
   const {
@@ -3158,7 +3490,82 @@ export async function createDeliverable(
     activities,
     memberships: membershipsColl,
     organizations,
+    files: filesColl,
   } = await getCollections();
+
+  let verifiedFiles: FileDoc[] = [];
+  if (fileObjectIds.length > 0) {
+    verifiedFiles = await filesColl
+      .find({
+        _id: { $in: fileObjectIds },
+        organizationId: membership.organizationId,
+      })
+      .toArray();
+
+    if (verifiedFiles.length !== fileObjectIds.length) {
+      throw new TenantValidationError(
+        "One or more referenced files do not exist in this organization.",
+      );
+    }
+
+    let aggregateBytes = 0;
+    for (const file of verifiedFiles) {
+      if (
+        !file.projectId.equals(project._id) ||
+        !file.taskId.equals(task._id)
+      ) {
+        throw new TenantValidationError(
+          "Referenced file does not belong to the specified project and task.",
+        );
+      }
+      if (file.status === "attached") {
+        throw new TenantValidationError(
+          `File "${file.originalFilename}" is already attached to a deliverable.`,
+        );
+      }
+      if (file.status === "pending") {
+        throw new TenantValidationError(
+          `File "${file.originalFilename}" upload has not been confirmed yet.`,
+        );
+      }
+      if (file.status === "deleted" || file.status === "deletion_pending") {
+        throw new TenantValidationError(
+          `File "${file.originalFilename}" has been deleted.`,
+        );
+      }
+      if (file.status !== "uploaded") {
+        throw new TenantValidationError(
+          `File "${file.originalFilename}" is not in an uploaded state.`,
+        );
+      }
+      if (
+        !isManagerRole(membership.role) &&
+        file.uploadedBy !== membership.userId
+      ) {
+        throw new TenantAccessError(
+          "You can only attach files that you uploaded.",
+        );
+      }
+      aggregateBytes += file.fileSize;
+    }
+
+    const MAX_AGGREGATE_BYTES = 500 * 1024 * 1024; // 500 MB
+    if (aggregateBytes > MAX_AGGREGATE_BYTES) {
+      throw new TenantValidationError(
+        "Aggregate file size exceeds the 500 MB limit per deliverable.",
+      );
+    }
+  }
+
+  const description = validateDeliverableDescription(input.description);
+  const url = validateDeliverableUrl(input.url);
+
+  if (description === null && url === null && verifiedFiles.length === 0) {
+    throw new TenantValidationError(
+      "A deliverable must include a description, a URL, or at least one attached file.",
+    );
+  }
+
   const priorCount = await deliverables.countDocuments({
     organizationId: membership.organizationId,
     projectId: project._id,
@@ -3202,6 +3609,8 @@ export async function createDeliverable(
       submissionNumber,
       isRevision: submissionNumber > 1,
       parentTaskId: task.parentTaskId ? task.parentTaskId.toHexString() : null,
+      attachedFileCount: verifiedFiles.length,
+      fileNames: verifiedFiles.map((f) => f.originalFilename),
     },
     createdAt: now,
   });
@@ -3209,10 +3618,47 @@ export async function createDeliverable(
   await runInTransactionOrFallback(
     async (session) => {
       await deliverables.insertOne(doc, { session });
+      if (verifiedFiles.length > 0) {
+        await filesColl.updateMany(
+          {
+            _id: { $in: verifiedFiles.map((f) => f._id) },
+            organizationId: membership.organizationId,
+          },
+          {
+            $set: {
+              deliverableId: doc._id,
+              status: "attached",
+              updatedAt: now,
+            },
+            $unset: {
+              expiresAt: "",
+            },
+          },
+          { session },
+        );
+      }
       await activities.insertOne(activityDoc, { session });
     },
     async () => {
       await deliverables.insertOne(doc);
+      if (verifiedFiles.length > 0) {
+        await filesColl.updateMany(
+          {
+            _id: { $in: verifiedFiles.map((f) => f._id) },
+            organizationId: membership.organizationId,
+          },
+          {
+            $set: {
+              deliverableId: doc._id,
+              status: "attached",
+              updatedAt: now,
+            },
+            $unset: {
+              expiresAt: "",
+            },
+          },
+        );
+      }
       await activities.insertOne(activityDoc);
     },
   );
@@ -3221,7 +3667,7 @@ export async function createDeliverable(
     _id: membership.organizationId,
   });
   if (organization) {
-    const reviewers = await membershipsColl
+    const adminOrManagerMembers = await membershipsColl
       .find({
         organizationId: membership.organizationId,
         role: { $in: ["admin", "manager"] },
@@ -3229,27 +3675,58 @@ export async function createDeliverable(
       })
       .toArray();
 
-    for (const reviewer of reviewers) {
+    const recipientUserIds = new Set<string>();
+    for (const m of adminOrManagerMembers) {
+      const normalizedRecipientId = normalizeUserIdValue(m.userId);
+      if (normalizedRecipientId && normalizedRecipientId !== membership.userId) {
+        recipientUserIds.add(normalizedRecipientId);
+      }
+    }
+
+    const userProfiles = await lookupRegisteredUsersByIds([membership.userId]);
+    const submitterUser = userProfiles.get(membership.userId);
+    const memberName =
+      submitterUser?.name?.trim() ||
+      submitterUser?.email?.trim() ||
+      "A member";
+
+    const reviewUrl = `/dashboard/${encodeURIComponent(organization.slug)}/projects/${project._id}#task-${task._id}`;
+    const submissionTime = `${now.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    const title = "New deliverable submitted";
+    const message =
+      submissionNumber > 1
+        ? `${memberName} submitted revised work (revision #${submissionNumber}) for task "${task.title}" in project "${project.name}" (${organization.name}) at ${submissionTime}.`
+        : `${memberName} submitted work for task "${task.title}" in project "${project.name}" (${organization.name}) at ${submissionTime}.`;
+
+    for (const recipientId of recipientUserIds) {
       await createNotificationSafe({
         organizationId: membership.organizationId,
-        recipientId: reviewer.userId,
+        recipientId,
         type: "deliverable.submitted",
-        title: `Deliverable submitted: ${task.title}`,
-        message:
-          submissionNumber > 1
-            ? `Revised deliverable #${submissionNumber} was submitted for "${task.title}".`
-            : `A deliverable was submitted for "${task.title}".`,
-        url: `/dashboard/${organization.slug}/projects/${project._id}#task-${task._id}`,
+        title,
+        message,
+        url: reviewUrl,
         entityType: "deliverable",
         entityId: doc._id,
         projectId: project._id,
         actorId: membership.userId,
-        dedupeKey: `deliverable.submitted:${doc._id.toHexString()}:${reviewer.userId}`,
+        dedupeKey: `deliverable.submitted:${doc._id.toHexString()}:${recipientId}`,
       });
     }
   }
 
-  return doc;
+  const attachedFiles: FileDoc[] = verifiedFiles.map((f) => ({
+    ...f,
+    deliverableId: doc._id,
+    status: "attached" as const,
+    updatedAt: now,
+    expiresAt: null,
+  }));
+
+  return {
+    ...doc,
+    files: attachedFiles,
+  };
 }
 
 export async function getDeliverableById(
@@ -3275,28 +3752,67 @@ export async function listTaskDeliverables(
   projectId: ObjectId,
   taskId: ObjectId,
   requestHeaders?: Headers,
-): Promise<DeliverableDoc[]> {
+): Promise<DeliverableWithFilesDoc[]> {
   const membership = await requireMembership(
     organizationId,
     undefined,
     requestHeaders,
   );
   await requireProjectInOrg(membership, projectId);
-  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+  const task = await requireTaskInProjectAndOrg(membership, projectId, taskId);
 
-  const { deliverables } = await getCollections();
-  return deliverables
-    .find({
-      organizationId: membership.organizationId,
-      projectId,
-      taskId,
-    })
-    .sort({ createdAt: -1, _id: -1 })
-    .toArray();
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view deliverables for tasks assigned to them.",
+    );
+  }
+
+  const { deliverables, files: filesColl } = await getCollections();
+  const orgId = membership.organizationId;
+  const [delivDocs, attachedFiles] = await Promise.all([
+    deliverables
+      .find({
+        organizationId: orgId,
+        projectId,
+        taskId,
+      })
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray(),
+    filesColl
+      .find({
+        organizationId: orgId,
+        taskId,
+        status: "attached",
+      })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray(),
+  ]);
+
+  const filesByDeliverableId = new Map<string, FileDoc[]>();
+  for (const f of attachedFiles) {
+    if (f.deliverableId) {
+      const hex = f.deliverableId.toHexString();
+      const list = filesByDeliverableId.get(hex);
+      if (list) {
+        list.push(f);
+      } else {
+        filesByDeliverableId.set(hex, [f]);
+      }
+    }
+  }
+
+  return delivDocs.map((d) => ({
+    ...d,
+    files: filesByDeliverableId.get(d._id.toHexString()) ?? [],
+  }));
 }
 
 export type DeliverableWithReviewsDoc = DeliverableDoc & {
   reviews: ReviewDoc[];
+  files: FileDoc[];
 };
 
 export async function listTaskDeliverablesWithReviews(
@@ -3311,12 +3827,21 @@ export async function listTaskDeliverablesWithReviews(
     requestHeaders,
   );
   await requireProjectInOrg(membership, projectId);
-  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+  const task = await requireTaskInProjectAndOrg(membership, projectId, taskId);
 
-  const { deliverables, reviews } = await getCollections();
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view deliverables for tasks assigned to them.",
+    );
+  }
+
+  const { deliverables, reviews, files: filesColl } = await getCollections();
   const orgId = membership.organizationId;
 
-  const [delivDocs, reviewDocs] = await Promise.all([
+  const [delivDocs, reviewDocs, attachedFiles] = await Promise.all([
     deliverables
       .find({ organizationId: orgId, projectId, taskId })
       .sort({ createdAt: -1, _id: -1 })
@@ -3324,6 +3849,10 @@ export async function listTaskDeliverablesWithReviews(
     reviews
       .find({ organizationId: orgId, projectId, taskId })
       .sort({ createdAt: -1, _id: -1 })
+      .toArray(),
+    filesColl
+      .find({ organizationId: orgId, taskId, status: "attached" })
+      .sort({ createdAt: 1, _id: 1 })
       .toArray(),
   ]);
 
@@ -3338,9 +3867,23 @@ export async function listTaskDeliverablesWithReviews(
     }
   }
 
+  const filesByDeliverableId = new Map<string, FileDoc[]>();
+  for (const f of attachedFiles) {
+    if (f.deliverableId) {
+      const hex = f.deliverableId.toHexString();
+      const list = filesByDeliverableId.get(hex);
+      if (list) {
+        list.push(f);
+      } else {
+        filesByDeliverableId.set(hex, [f]);
+      }
+    }
+  }
+
   return delivDocs.map((d) => ({
     ...d,
     reviews: reviewsByDeliverableId.get(d._id.toHexString()) ?? [],
+    files: filesByDeliverableId.get(d._id.toHexString()) ?? [],
   }));
 }
 
@@ -3449,12 +3992,12 @@ export async function createReview(
       },
       ...(comment !== null
         ? [
-            {
-              field: "comment",
-              before: previousReview ? (previousReview.comment ?? null) : null,
-              after: comment,
-            },
-          ]
+          {
+            field: "comment",
+            before: previousReview ? (previousReview.comment ?? null) : null,
+            after: comment,
+          },
+        ]
         : []),
     ],
     metadata: {
@@ -3539,7 +4082,15 @@ export async function listDeliverableReviews(
     requestHeaders,
   );
   await requireProjectInOrg(membership, projectId);
-  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+  const task = await requireTaskInProjectAndOrg(membership, projectId, taskId);
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view reviews for tasks assigned to them.",
+    );
+  }
   await requireDeliverableInTaskAndOrg(
     membership,
     projectId,
@@ -3571,7 +4122,16 @@ export async function listTaskReviews(
     requestHeaders,
   );
   await requireProjectInOrg(membership, projectId);
-  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+  const task = await requireTaskInProjectAndOrg(membership, projectId, taskId);
+
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view reviews for tasks assigned to them.",
+    );
+  }
 
   const { reviews } = await getCollections();
   return reviews
@@ -4150,7 +4710,16 @@ export async function getTaskDependencySummary(
   );
   const orgId = membership.organizationId;
   await requireProjectInOrg(membership, projectId);
-  await requireTaskInProjectAndOrg(membership, projectId, taskId);
+  const task = await requireTaskInProjectAndOrg(membership, projectId, taskId);
+
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view dependencies for tasks assigned to them.",
+    );
+  }
 
   const { tasks, taskDependencies } = await getCollections();
   const edges = await taskDependencies
@@ -4822,7 +5391,7 @@ export async function listOrganizationActivity(
 ): Promise<ActivityPage> {
   const membership = await requireMembership(
     organizationId,
-    undefined,
+    MANAGER_ROLES,
     requestHeaders,
   );
   return queryPaginatedActivities(membership.organizationId, {}, options);
@@ -4842,7 +5411,7 @@ export async function listProjectActivity(
 ): Promise<ActivityPage> {
   const membership = await requireMembership(
     organizationId,
-    undefined,
+    MANAGER_ROLES,
     requestHeaders,
   );
   const project = await requireProjectInOrg(membership, projectId);
@@ -4873,6 +5442,16 @@ export async function listTaskActivity(
   );
   const project = await requireProjectInOrg(membership, projectId);
   const task = await requireTaskInProjectAndOrg(membership, project._id, taskId);
+
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view activity for tasks assigned to them.",
+    );
+  }
+
   return queryPaginatedActivities(
     membership.organizationId,
     { projectId: project._id, taskId: task._id },
@@ -5290,14 +5869,14 @@ export function computeTaskDeadlineHealth(
 
   const effectiveDeadlineMs = isMidnightUtc
     ? Date.UTC(
-        d.getUTCFullYear(),
-        d.getUTCMonth(),
-        d.getUTCDate(),
-        23,
-        59,
-        59,
-        999,
-      )
+      d.getUTCFullYear(),
+      d.getUTCMonth(),
+      d.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    )
     : isSameUtcDay && now.getTime() - d.getTime() >= 0 && now.getTime() - d.getTime() < 60_000
       ? now.getTime() + 1_000
       : d.getTime();
@@ -5874,47 +6453,47 @@ async function hydrateEnrichedTasksInternal(
     getOrgTasksLastActivityMapInternal(organizationId, taskDocs),
     parentIdsToLookup.size > 0
       ? tasks
-          .find(
-            {
-              _id: { $in: Array.from(parentIdsToLookup.values()) },
-              organizationId,
-            },
-            { projection: { _id: 1, title: 1 } },
-          )
-          .toArray()
+        .find(
+          {
+            _id: { $in: Array.from(parentIdsToLookup.values()) },
+            organizationId,
+          },
+          { projection: { _id: 1, title: 1 } },
+        )
+        .toArray()
       : Promise.resolve([]),
     assigneeIdList.length > 0
       ? lookupRegisteredUsersByIds(assigneeIdList)
       : Promise.resolve(new Map<UserId, { name: string | null; email: string | null }>()),
     assigneeIdList.length > 0
       ? memberships
-          .find(
-            { organizationId, userId: { $in: assigneeIdList } },
-            { projection: { _id: 0, userId: 1, role: 1 } },
-          )
-          .toArray()
+        .find(
+          { organizationId, userId: { $in: assigneeIdList } },
+          { projection: { _id: 0, userId: 1, role: 1 } },
+        )
+        .toArray()
       : Promise.resolve([]),
     sourceMeetingIdsToLookup.size > 0
       ? meetings
-          .find(
-            {
-              _id: { $in: Array.from(sourceMeetingIdsToLookup.values()) },
-              organizationId,
-            },
-            { projection: { _id: 1, title: 1 } },
-          )
-          .toArray()
+        .find(
+          {
+            _id: { $in: Array.from(sourceMeetingIdsToLookup.values()) },
+            organizationId,
+          },
+          { projection: { _id: 1, title: 1 } },
+        )
+        .toArray()
       : Promise.resolve([]),
     sourceActionItemIdsToLookup.size > 0
       ? meetingActionItems
-          .find(
-            {
-              _id: { $in: Array.from(sourceActionItemIdsToLookup.values()) },
-              organizationId,
-            },
-            { projection: { _id: 1, title: 1, meetingId: 1 } },
-          )
-          .toArray()
+        .find(
+          {
+            _id: { $in: Array.from(sourceActionItemIdsToLookup.values()) },
+            organizationId,
+          },
+          { projection: { _id: 1, title: 1, meetingId: 1 } },
+        )
+        .toArray()
       : Promise.resolve([]),
   ]);
 
@@ -6329,12 +6908,54 @@ export async function queryProjectTasks(
     projectId: project._id,
   };
 
-  if (parentMode === "top_level") {
-    mongoQuery.parentTaskId = null;
-  } else if (parentMode === "subtasks") {
-    mongoQuery.parentTaskId = { $ne: null };
-  } else if (parentMode === "specific" && specificParentId) {
-    mongoQuery.parentTaskId = specificParentId;
+  const isManager = isManagerRole(membership.role);
+  const { tasks } = await getCollections();
+
+  if (!isManager) {
+    if (
+      assigneeFilterMode === "unassigned" ||
+      (assigneeFilterMode === "member" && assigneeIdFilter !== membership.userId)
+    ) {
+      throw new TenantAccessError("Members can only view tasks assigned to them.");
+    }
+    mongoQuery.assigneeId = buildUserIdFilter(membership.userId);
+
+    if (parentMode === "top_level") {
+      const memberAssignedTasks = await tasks
+        .find(
+          {
+            organizationId: orgId,
+            projectId: project._id,
+            assigneeId: buildUserIdFilter(membership.userId) as unknown as UserId,
+          },
+          { projection: { _id: 1 } },
+        )
+        .toArray();
+      const memberTaskIdSet = memberAssignedTasks.map((t) => t._id);
+
+      mongoQuery.$or = [
+        { parentTaskId: null },
+        { parentTaskId: { $nin: memberTaskIdSet } },
+      ];
+    } else if (parentMode === "subtasks") {
+      mongoQuery.parentTaskId = { $ne: null };
+    } else if (parentMode === "specific" && specificParentId) {
+      mongoQuery.parentTaskId = specificParentId;
+    }
+  } else {
+    if (parentMode === "top_level") {
+      mongoQuery.parentTaskId = null;
+    } else if (parentMode === "subtasks") {
+      mongoQuery.parentTaskId = { $ne: null };
+    } else if (parentMode === "specific" && specificParentId) {
+      mongoQuery.parentTaskId = specificParentId;
+    }
+
+    if (assigneeFilterMode === "unassigned") {
+      mongoQuery.assigneeId = null;
+    } else if (assigneeFilterMode === "member" && assigneeIdFilter !== null) {
+      mongoQuery.assigneeId = buildUserIdFilter(assigneeIdFilter);
+    }
   }
 
   if (statusFilter !== "all") {
@@ -6343,11 +6964,6 @@ export async function queryProjectTasks(
   if (priorityFilter !== "all") {
     mongoQuery.priority = priorityFilter;
   }
-  if (assigneeFilterMode === "unassigned") {
-    mongoQuery.assigneeId = null;
-  } else if (assigneeFilterMode === "member") {
-    mongoQuery.assigneeId = assigneeIdFilter;
-  }
   if (deadlineFrom || deadlineTo) {
     const deadlineCond: Record<string, Date> = {};
     if (deadlineFrom) deadlineCond.$gte = deadlineFrom;
@@ -6355,7 +6971,6 @@ export async function queryProjectTasks(
     mongoQuery.deadline = deadlineCond;
   }
 
-  const { tasks } = await getCollections();
   const rawDocs = (
     await tasks
       .find(mongoQuery)
@@ -6436,8 +7051,9 @@ export async function queryProjectTasks(
       projectStatus: project.status,
       status: statusFilter,
       priority: priorityFilter,
-      assigneeId:
-        assigneeFilterMode === "unassigned"
+      assigneeId: !isManager
+        ? membership.userId
+        : assigneeFilterMode === "unassigned"
           ? "unassigned"
           : assigneeFilterMode === "member" && assigneeIdFilter
             ? assigneeIdFilter
@@ -6975,14 +7591,14 @@ export async function getSupervisorDashboard(
   const rawTaskDocs =
     projectIdsToFetch.length > 0
       ? (
-          await tasks
-            .find({
-              organizationId: orgId,
-              projectId: { $in: projectIdsToFetch },
-            })
-            .sort({ createdAt: 1, _id: 1 })
-            .toArray()
-        ).map(normalizeTaskDoc)
+        await tasks
+          .find({
+            organizationId: orgId,
+            projectId: { $in: projectIdsToFetch },
+          })
+          .sort({ createdAt: 1, _id: 1 })
+          .toArray()
+      ).map(normalizeTaskDoc)
       : [];
 
   const enrichedTasks = await hydrateEnrichedTasksInternal(
@@ -7403,8 +8019,8 @@ export async function getSupervisionReports(
 
   const rawMemberParam =
     options?.memberId !== undefined &&
-    options.memberId !== null &&
-    options.memberId !== ""
+      options.memberId !== null &&
+      options.memberId !== ""
       ? options.memberId
       : options?.assigneeId;
 
@@ -7476,11 +8092,11 @@ export async function getSupervisionReports(
   const rawTasks =
     projectIds.length > 0
       ? (
-          await tasks
-            .find(taskQuery)
-            .sort({ createdAt: 1, _id: 1 })
-            .toArray()
-        ).map(normalizeTaskDoc)
+        await tasks
+          .find(taskQuery)
+          .sort({ createdAt: 1, _id: 1 })
+          .toArray()
+      ).map(normalizeTaskDoc)
       : [];
 
   const now = new Date();
@@ -7491,24 +8107,24 @@ export async function getSupervisionReports(
     }),
     rawTasks.length > 0
       ? activities
-          .aggregate<{ _id: ObjectId; completedAt: Date }>([
-            {
-              $match: {
-                organizationId: orgId,
-                taskId: { $in: rawTasks.map((t) => t._id) },
-                eventType: "task.status_changed",
-                "changes.field": "status",
-                "changes.after": "done",
-              },
+        .aggregate<{ _id: ObjectId; completedAt: Date }>([
+          {
+            $match: {
+              organizationId: orgId,
+              taskId: { $in: rawTasks.map((t) => t._id) },
+              eventType: "task.status_changed",
+              "changes.field": "status",
+              "changes.after": "done",
             },
-            {
-              $group: {
-                _id: "$taskId",
-                completedAt: { $max: "$createdAt" },
-              },
+          },
+          {
+            $group: {
+              _id: "$taskId",
+              completedAt: { $max: "$createdAt" },
             },
-          ])
-          .toArray()
+          },
+        ])
+        .toArray()
       : Promise.resolve([]),
   ]);
 
@@ -7535,11 +8151,11 @@ export async function getSupervisionReports(
 
   const filteredTasksForReport = hasDateFilter
     ? enrichedTasks.filter((t) => {
-        if (isInDateWindow(t.createdAt)) return true;
-        const compAt = completedAtByTaskHex.get(t.id);
-        if (t.status === "done" && compAt && isInDateWindow(compAt)) return true;
-        return false;
-      })
+      if (isInDateWindow(t.createdAt)) return true;
+      const compAt = completedAtByTaskHex.get(t.id);
+      if (t.status === "done" && compAt && isInDateWindow(compAt)) return true;
+      return false;
+    })
     : enrichedTasks;
 
   // 1. Project Progress Report (using top-level tasks to avoid double-counting subtasks)
@@ -7605,7 +8221,7 @@ export async function getSupervisionReports(
       const pct =
         topStats.totalTasks > 0
           ? Math.round((topStats.completedTasks / topStats.totalTasks) * 10000) /
-            100
+          100
           : 0;
 
       totalSummaryTasks += topStats.totalTasks;
@@ -8493,19 +9109,19 @@ async function enrichMeetingDocs(
       lookupRegisteredUsersByIds(allUserIds),
       allUserIds.length > 0
         ? memberships
-            .find(
-              { organizationId, userId: { $in: allUserIds } },
-              { projection: { _id: 0, userId: 1, role: 1 } },
-            )
-            .toArray()
+          .find(
+            { organizationId, userId: { $in: allUserIds } },
+            { projection: { _id: 0, userId: 1, role: 1 } },
+          )
+          .toArray()
         : Promise.resolve([]),
       projectIds.length > 0
         ? projects
-            .find(
-              { organizationId, _id: { $in: projectIds } },
-              { projection: { _id: 1, name: 1, status: 1 } },
-            )
-            .toArray()
+          .find(
+            { organizationId, _id: { $in: projectIds } },
+            { projection: { _id: 1, name: 1, status: 1 } },
+          )
+          .toArray()
         : Promise.resolve([]),
       meetingActionItems
         .aggregate<{
@@ -8679,11 +9295,11 @@ async function enrichActionItemDocs(
     lookupRegisteredUsersByIds(allUserIds),
     allUserIds.length > 0
       ? memberships
-          .find(
-            { organizationId, userId: { $in: allUserIds } },
-            { projection: { _id: 0, userId: 1, role: 1 } },
-          )
-          .toArray()
+        .find(
+          { organizationId, userId: { $in: allUserIds } },
+          { projection: { _id: 0, userId: 1, role: 1 } },
+        )
+        .toArray()
       : Promise.resolve([]),
     tasks
       .find(
@@ -8726,11 +9342,11 @@ async function enrichActionItemDocs(
   const projectDocs =
     projectIdsToLookup.length > 0
       ? await projects
-          .find(
-            { organizationId, _id: { $in: projectIdsToLookup } },
-            { projection: { _id: 1, name: 1, status: 1 } },
-          )
-          .toArray()
+        .find(
+          { organizationId, _id: { $in: projectIdsToLookup } },
+          { projection: { _id: 1, name: 1, status: 1 } },
+        )
+        .toArray()
       : [];
 
   const projectByHex = new Map<string, Pick<ProjectDoc, "_id" | "name" | "status">>();
@@ -8764,11 +9380,11 @@ async function enrichActionItemDocs(
       ownerId: doc.ownerId ?? null,
       owner: doc.ownerId
         ? {
-            userId: doc.ownerId,
-            name: ownerProfile?.name ?? null,
-            email: ownerProfile?.email ?? null,
-            role: roleByUserId.get(doc.ownerId) ?? null,
-          }
+          userId: doc.ownerId,
+          name: ownerProfile?.name ?? null,
+          email: ownerProfile?.email ?? null,
+          role: roleByUserId.get(doc.ownerId) ?? null,
+        }
         : null,
       targetDate: doc.targetDate ?? null,
       status: doc.status,
@@ -8782,14 +9398,14 @@ async function enrichActionItemDocs(
       linkedTaskId: matchedTask ? matchedTask._id : (doc.linkedTaskId ?? null),
       linkedTask: matchedTask
         ? {
-            id: matchedTask._id.toHexString(),
-            projectId: matchedTask.projectId.toHexString(),
-            projectName: matchedProject?.name ?? null,
-            projectStatus: matchedProject?.status ?? null,
-            title: matchedTask.title,
-            status: matchedTask.status,
-            priority: matchedTask.priority,
-          }
+          id: matchedTask._id.toHexString(),
+          projectId: matchedTask.projectId.toHexString(),
+          projectName: matchedProject?.name ?? null,
+          projectStatus: matchedProject?.status ?? null,
+          title: matchedTask.title,
+          status: matchedTask.status,
+          priority: matchedTask.priority,
+        }
         : null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
@@ -9888,10 +10504,10 @@ export async function mutateMeetingNotesAndDecisions(
         : isPlainObject(rawPt)
           ? validateDiscussionPointContent(rawPt.content)
           : (() => {
-              throw new TenantValidationError(
-                "addDiscussionPoint must be a string or an object with content.",
-              );
-            })();
+            throw new TenantValidationError(
+              "addDiscussionPoint must be a string or an object with content.",
+            );
+          })();
     nextPoints.push({
       id: new ObjectId().toHexString(),
       content,
@@ -10273,12 +10889,12 @@ export async function createMeetingActionItem(
       { field: "ownerId", before: null, after: doc.ownerId },
       ...(doc.targetDate !== null
         ? [
-            {
-              field: "targetDate",
-              before: null,
-              after: doc.targetDate.toISOString(),
-            },
-          ]
+          {
+            field: "targetDate",
+            before: null,
+            after: doc.targetDate.toISOString(),
+          },
+        ]
         : []),
     ],
     metadata: {
@@ -10687,12 +11303,12 @@ function buildActionItemTaskCreatedActivityDoc(params: {
       { field: "assigneeId", before: null, after: taskDoc.assigneeId },
       ...(taskDoc.deadline !== null
         ? [
-            {
-              field: "deadline",
-              before: null,
-              after: taskDoc.deadline.toISOString(),
-            },
-          ]
+          {
+            field: "deadline",
+            before: null,
+            after: taskDoc.deadline.toISOString(),
+          },
+        ]
         : []),
       {
         field: "approvalRequired",
@@ -11158,6 +11774,7 @@ export async function convertMeetingActionItemToTask(
         meeting,
         actionItem: existingActionItem,
       });
+
       if (recovered) {
         return recovered;
       }
@@ -11218,6 +11835,1000 @@ export async function convertMeetingActionItemToTask(
     created: true,
   };
 }
+
+// ============================================================================
+// Blocker Reporting & Lifecycle Foundation
+// ============================================================================
+
+/**
+ * Computes a deterministic normalized fingerprint for general blocker descriptions.
+ * Trims whitespace, collapses internal whitespace, converts to lowercase, and hashes
+ * using SHA-256 to ensure fixed key length in unique indexes and avoid index limits.
+ */
+export function computeBlockerDescriptionFingerprint(description: string): string {
+  const normalized = description.trim().toLowerCase().replace(/\s+/g, " ");
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+let blockerIndexesEnsured = false;
+async function ensureBlockerIndexesSafe(
+  blockersColl: import("mongodb").Collection<BlockerDoc>,
+): Promise<void> {
+  if (blockerIndexesEnsured) return;
+  try {
+    await blockersColl.createIndexes([
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          taskId: 1,
+          dependencyTaskId: 1,
+        },
+        name: "uniq_open_task_dependency_blocker",
+        unique: true,
+        partialFilterExpression: {
+          status: "open",
+          type: "task_dependency",
+          dependencyTaskId: { $type: "objectId" },
+        },
+      },
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          taskId: 1,
+          descriptionFingerprint: 1,
+        },
+        name: "uniq_open_general_blocker_fingerprint",
+        unique: true,
+        partialFilterExpression: {
+          status: "open",
+          type: "general",
+          descriptionFingerprint: { $type: "string" },
+        },
+      },
+    ]);
+    blockerIndexesEnsured = true;
+  } catch {
+    // Non-fatal if index creation fails due to permissions or race condition.
+  }
+}
+
+export type BlockerItem = {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  taskId: string;
+  taskTitle: string | null;
+  reporterId: string;
+  reporter: {
+    id: string;
+    name: string | null;
+    email: string | null;
+  } | null;
+  type: BlockerType;
+  dependencyTaskId: string | null;
+  dependencyTaskTitle: string | null;
+  description: string;
+  impact: string;
+  status: BlockerStatus;
+  resolutionNote: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateBlockerInput = {
+  projectId: ObjectId | string;
+  taskId: ObjectId | string;
+  type: BlockerType;
+  dependencyTaskId?: ObjectId | string | null;
+  description: string;
+  impact: string;
+};
+
+export type ListProjectBlockersOptions = {
+  status?: BlockerStatus | "all";
+  taskId?: ObjectId | string;
+  type?: BlockerType;
+  cursor?: string | null;
+  limit?: number;
+};
+
+export type ListProjectBlockersResult = {
+  blockers: BlockerItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+function toBlockerItem(
+  doc: BlockerDoc,
+  taskTitlesById?: Map<string, string>,
+  reportersById?: Map<string, { name: string | null; email: string | null }>,
+): BlockerItem {
+  const taskHex = doc.taskId.toHexString();
+  const depHex = doc.dependencyTaskId ? doc.dependencyTaskId.toHexString() : null;
+  const reporterProfile = reportersById?.get(doc.reporterId);
+
+  return {
+    id: doc._id.toHexString(),
+    organizationId: doc.organizationId.toHexString(),
+    projectId: doc.projectId.toHexString(),
+    taskId: taskHex,
+    taskTitle: taskTitlesById?.get(taskHex) ?? null,
+    reporterId: doc.reporterId,
+    reporter: reporterProfile
+      ? {
+          id: doc.reporterId,
+          name: reporterProfile.name ?? null,
+          email: reporterProfile.email ?? null,
+        }
+      : null,
+    type: doc.type,
+    dependencyTaskId: depHex,
+    dependencyTaskTitle: depHex ? (taskTitlesById?.get(depHex) ?? null) : null,
+    description: doc.description,
+    impact: doc.impact,
+    status: doc.status,
+    resolutionNote: doc.resolutionNote ?? null,
+    resolvedBy: doc.resolvedBy ?? null,
+    resolvedAt: doc.resolvedAt ? doc.resolvedAt.toISOString() : null,
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+async function hydrateBlockerItems(
+  organizationId: ObjectId,
+  docs: BlockerDoc[],
+): Promise<BlockerItem[]> {
+  if (docs.length === 0) return [];
+  const { tasks } = await getCollections();
+
+  const taskIdsSet = new Set<string>();
+  const reporterIdsSet = new Set<string>();
+
+  for (const doc of docs) {
+    taskIdsSet.add(doc.taskId.toHexString());
+    if (doc.dependencyTaskId) {
+      taskIdsSet.add(doc.dependencyTaskId.toHexString());
+    }
+    if (doc.reporterId) {
+      reporterIdsSet.add(doc.reporterId);
+    }
+  }
+
+  const taskObjectIds = Array.from(taskIdsSet).map((hex) => new ObjectId(hex));
+  const reporterIds = Array.from(reporterIdsSet);
+
+  const [taskDocs, reportersMap] = await Promise.all([
+    tasks
+      .find(
+        { organizationId, _id: { $in: taskObjectIds } },
+        { projection: { _id: 1, title: 1 } },
+      )
+      .toArray(),
+    lookupRegisteredUsersByIds(reporterIds),
+  ]);
+
+  const taskTitlesMap = new Map<string, string>();
+  for (const t of taskDocs) {
+    taskTitlesMap.set(t._id.toHexString(), t.title);
+  }
+
+  return docs.map((doc) => toBlockerItem(doc, taskTitlesMap, reportersMap));
+}
+
+/**
+ * Creates a blocker report against a task within an organization and project.
+ * Ordinary Members can only report against tasks assigned to them.
+ * Managers and platform admins can report against any task in the project.
+ */
+export async function createBlockerReport(
+  organizationId: ObjectId,
+  input: CreateBlockerInput,
+  requestHeaders?: Headers,
+): Promise<BlockerItem> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+
+  const parsedProjectId =
+    typeof input.projectId === "string"
+      ? parseObjectId(input.projectId)
+      : input.projectId;
+  if (!parsedProjectId) {
+    throw new TenantValidationError("Invalid project ID.");
+  }
+
+  const project = await requireProjectInOrg(membership, parsedProjectId);
+  if (project.status === "archived") {
+    throw new TenantValidationError(
+      "Cannot report blockers in an archived project.",
+    );
+  }
+
+  const parsedTaskId =
+    typeof input.taskId === "string"
+      ? parseObjectId(input.taskId)
+      : input.taskId;
+  if (!parsedTaskId) {
+    throw new TenantValidationError("Invalid task ID.");
+  }
+
+  const task = await requireTaskInProjectAndOrg(
+    membership,
+    project._id,
+    parsedTaskId,
+  );
+  if (task.status === "done") {
+    throw new TenantValidationError("Cannot report blockers on a completed task.");
+  }
+
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only report blockers for tasks assigned to them.",
+    );
+  }
+
+  if (input.type !== "task_dependency" && input.type !== "general") {
+    throw new TenantValidationError(
+      "Blocker type must be 'task_dependency' or 'general'.",
+    );
+  }
+
+  let depTaskId: ObjectId | null = null;
+  if (input.type === "task_dependency") {
+    if (!input.dependencyTaskId) {
+      throw new TenantValidationError(
+        "A linked dependency task is required for task dependency blockers.",
+      );
+    }
+    depTaskId =
+      typeof input.dependencyTaskId === "string"
+        ? parseObjectId(input.dependencyTaskId)
+        : input.dependencyTaskId;
+    if (!depTaskId) {
+      throw new TenantValidationError("Invalid dependency task ID.");
+    }
+    if (depTaskId.equals(task._id)) {
+      throw new TenantValidationError("A task cannot be blocked by itself.");
+    }
+    await requireTaskInProjectAndOrg(membership, project._id, depTaskId);
+  } else {
+    if (input.dependencyTaskId) {
+      throw new TenantValidationError(
+        "Linked dependency task cannot be set for general blockers.",
+      );
+    }
+  }
+
+  const description = input.description?.trim();
+  if (!description || description.length < 3 || description.length > 5000) {
+    throw new TenantValidationError(
+      "Blocker description must be between 3 and 5000 characters.",
+    );
+  }
+
+  const impact = input.impact?.trim();
+  if (!impact || impact.length < 3 || impact.length > 5000) {
+    throw new TenantValidationError(
+      "Blocker impact must be between 3 and 5000 characters.",
+    );
+  }
+
+  const { blockers, activities, memberships: membershipsColl, organizations } =
+    await getCollections();
+
+  await ensureBlockerIndexesSafe(blockers);
+
+  const descriptionFingerprint =
+    input.type === "general"
+      ? computeBlockerDescriptionFingerprint(description)
+      : null;
+
+  // Prevent duplicate open blockers (fast-path application check + unique partial indexes)
+  if (input.type === "task_dependency" && depTaskId) {
+    const existing = await blockers.findOne({
+      organizationId: membership.organizationId,
+      projectId: project._id,
+      taskId: task._id,
+      dependencyTaskId: depTaskId,
+      status: "open",
+    });
+    if (existing) {
+      throw new TenantValidationError(
+        "An open blocker is already reported for this dependency task.",
+      );
+    }
+  } else {
+    const existing = await blockers.findOne({
+      organizationId: membership.organizationId,
+      projectId: project._id,
+      taskId: task._id,
+      type: "general",
+      $or: [
+        { descriptionFingerprint },
+        { description },
+      ],
+      status: "open",
+    });
+    if (existing) {
+      throw new TenantValidationError(
+        "An identical open blocker is already reported for this task.",
+      );
+    }
+  }
+
+  const now = new Date();
+  const blockerDoc: BlockerDoc = {
+    _id: new ObjectId(),
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    taskId: task._id,
+    reporterId: membership.userId,
+    type: input.type,
+    dependencyTaskId: depTaskId,
+    description,
+    impact,
+    status: "open",
+    descriptionFingerprint,
+    resolutionNote: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Record activity history
+  const activityDoc = buildActivityDoc({
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    taskId: task._id,
+    actorId: membership.userId,
+    eventType: "blocker.reported",
+    targetType: "blocker",
+    targetId: blockerDoc._id,
+    summary: `Reported ${input.type === "task_dependency" ? "dependency" : "general"} blocker on "${task.title}": ${description.slice(0, 80)}`,
+    changes: [
+      { field: "status", before: null, after: "open" },
+      { field: "type", before: null, after: input.type },
+    ],
+    metadata: {
+      blockerType: input.type,
+      taskTitle: task.title,
+      dependencyTaskId: depTaskId ? depTaskId.toHexString() : null,
+    },
+    createdAt: now,
+  });
+
+  try {
+    await runInTransactionOrFallback(
+      async (session) => {
+        await blockers.insertOne(blockerDoc, { session });
+        await activities.insertOne(activityDoc, { session });
+      },
+      async () => {
+        await blockers.insertOne(blockerDoc);
+        await activities.insertOne(activityDoc);
+      },
+    );
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      if (input.type === "task_dependency") {
+        throw new TenantValidationError(
+          "An open blocker is already reported for this dependency task.",
+        );
+      }
+      throw new TenantValidationError(
+        "An identical open blocker is already reported for this task.",
+      );
+    }
+    throw error;
+  }
+
+  // Notify organization managers (avoiding reporter)
+  try {
+    const organization = await organizations.findOne({
+      _id: membership.organizationId,
+    });
+    if (organization) {
+      const adminOrManagerMembers = await membershipsColl
+        .find({
+          organizationId: membership.organizationId,
+          role: { $in: ["admin", "manager"] },
+          userId: { $ne: membership.userId },
+        })
+        .toArray();
+
+      const recipientUserIds = new Set<string>();
+      for (const m of adminOrManagerMembers) {
+        const normalized = normalizeUserIdValue(m.userId);
+        if (normalized && normalized !== membership.userId) {
+          recipientUserIds.add(normalized);
+        }
+      }
+
+      if (recipientUserIds.size > 0) {
+        const userProfiles = await lookupRegisteredUsersByIds([
+          membership.userId,
+        ]);
+        const reporterUser = userProfiles.get(membership.userId);
+        const reporterName =
+          reporterUser?.name?.trim() ||
+          reporterUser?.email?.trim() ||
+          "A team member";
+
+        const title = `New blocker reported: ${task.title}`;
+        const message = `${reporterName} reported a ${input.type === "task_dependency" ? "task dependency" : "general"} blocker on task "${task.title}" in project "${project.name}". Impact: "${impact.slice(0, 150)}".`;
+        const url = `/dashboard/${encodeURIComponent(organization.slug)}/projects/${project._id}#task-${task._id}`;
+
+        for (const recipientId of recipientUserIds) {
+          await createNotificationSafe({
+            organizationId: membership.organizationId,
+            recipientId,
+            type: "blocker.reported",
+            title,
+            message,
+            url,
+            entityType: "blocker",
+            entityId: blockerDoc._id,
+            projectId: project._id,
+            actorId: membership.userId,
+            dedupeKey: `blocker.reported:${blockerDoc._id.toHexString()}:${recipientId}`,
+          });
+        }
+      }
+    }
+  } catch {
+    // Best-effort notification delivery
+  }
+
+  const [hydrated] = await hydrateBlockerItems(membership.organizationId, [
+    blockerDoc,
+  ]);
+  return hydrated;
+}
+
+/**
+ * Lists blockers for a project (managers and admins only).
+ */
+export async function listProjectBlockers(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  options?: ListProjectBlockersOptions,
+  requestHeaders?: Headers,
+): Promise<ListProjectBlockersResult> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+
+  const limit = Math.min(Math.max(Number(options?.limit) || 20, 1), 100);
+  const cursor = parseActivityCursor(options?.cursor);
+
+  const filter: Record<string, unknown> = {
+    organizationId: membership.organizationId,
+    projectId: project._id,
+  };
+
+  if (options?.status && options.status !== "all") {
+    filter.status = options.status;
+  }
+  if (options?.taskId) {
+    const parsedTaskId =
+      typeof options.taskId === "string"
+        ? parseObjectId(options.taskId)
+        : options.taskId;
+    if (parsedTaskId) {
+      filter.taskId = parsedTaskId;
+    }
+  }
+  if (options?.type) {
+    filter.type = options.type;
+  }
+
+  if (cursor) {
+    filter.$or = [
+      { createdAt: { $lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ];
+  }
+
+  const { blockers } = await getCollections();
+  const docs = await blockers
+    .find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(limit + 1)
+    .toArray();
+
+  const hasMore = docs.length > limit;
+  const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+  const nextCursor =
+    hasMore && pageDocs.length > 0
+      ? encodeActivityCursor(pageDocs[pageDocs.length - 1])
+      : null;
+
+  const items = await hydrateBlockerItems(membership.organizationId, pageDocs);
+  return {
+    blockers: items,
+    nextCursor,
+    hasMore,
+  };
+}
+
+/**
+ * Lists blockers for a specific task.
+ * Ordinary members can only list blockers on tasks assigned to them.
+ * Managers and platform admins can list blockers for any task.
+ */
+export async function listTaskBlockers(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  taskId: ObjectId,
+  options?: {
+    status?: BlockerStatus | "all";
+    cursor?: string | null;
+    limit?: number;
+  },
+  requestHeaders?: Headers,
+): Promise<ListProjectBlockersResult> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+  const task = await requireTaskInProjectAndOrg(
+    membership,
+    project._id,
+    taskId,
+  );
+
+  if (
+    !isManagerRole(membership.role) &&
+    task.assigneeId !== membership.userId
+  ) {
+    throw new TenantAccessError(
+      "Members can only view blockers for tasks assigned to them.",
+    );
+  }
+
+  const limit = Math.min(Math.max(Number(options?.limit) || 20, 1), 100);
+  const cursor = parseActivityCursor(options?.cursor);
+
+  const filter: Record<string, unknown> = {
+    organizationId: membership.organizationId,
+    projectId: project._id,
+    taskId: task._id,
+  };
+
+  if (options?.status && options.status !== "all") {
+    filter.status = options.status;
+  }
+
+  if (cursor) {
+    filter.$or = [
+      { createdAt: { $lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ];
+  }
+
+  const { blockers } = await getCollections();
+  const docs = await blockers
+    .find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(limit + 1)
+    .toArray();
+
+  const hasMore = docs.length > limit;
+  const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+  const nextCursor =
+    hasMore && pageDocs.length > 0
+      ? encodeActivityCursor(pageDocs[pageDocs.length - 1])
+      : null;
+
+  const items = await hydrateBlockerItems(membership.organizationId, pageDocs);
+  return {
+    blockers: items,
+    nextCursor,
+    hasMore,
+  };
+}
+
+/**
+ * Resolves an open blocker report (managers and admins only).
+ */
+export async function resolveBlocker(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  blockerId: ObjectId,
+  resolutionNote?: string | null,
+  requestHeaders?: Headers,
+): Promise<BlockerItem> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+
+  const { blockers, activities, tasks } = await getCollections();
+  const blocker = await blockers.findOne({
+    _id: blockerId,
+    organizationId: membership.organizationId,
+    projectId: project._id,
+  });
+
+  if (!blocker) {
+    throw new TenantValidationError(
+      "Referenced blocker does not belong to this organization or project.",
+    );
+  }
+
+  if (blocker.status === "resolved") {
+    throw new TenantValidationError("Blocker is already resolved.");
+  }
+
+  if (blocker.status === "dismissed") {
+    throw new TenantValidationError(
+      "Cannot resolve a dismissed blocker. Reopen or create a new blocker.",
+    );
+  }
+
+  const note =
+    resolutionNote !== undefined && resolutionNote !== null
+      ? resolutionNote.trim()
+      : null;
+  if (note && note.length > 5000) {
+    throw new TenantValidationError(
+      "Resolution note must not exceed 5000 characters.",
+    );
+  }
+
+  const now = new Date();
+  const task = await tasks.findOne({ _id: blocker.taskId });
+  const taskTitle = task?.title ?? "task";
+
+  const updatedDoc = await runInTransactionOrFallback<BlockerDoc | null>(
+    async (session) => {
+      const updated = await blockers.findOneAndUpdate(
+        {
+          _id: blocker._id,
+          organizationId: membership.organizationId,
+          projectId: project._id,
+          status: "open",
+        },
+        {
+          $set: {
+            status: "resolved",
+            resolutionNote: note,
+            resolvedBy: membership.userId,
+            resolvedAt: now,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: "after", session },
+      );
+      if (!updated) {
+        return null;
+      }
+
+      const activityDoc = buildActivityDoc({
+        organizationId: membership.organizationId,
+        projectId: project._id,
+        taskId: blocker.taskId,
+        actorId: membership.userId,
+        eventType: "blocker.resolved",
+        targetType: "blocker",
+        targetId: blocker._id,
+        summary: `Resolved blocker on "${taskTitle}"`,
+        changes: [
+          { field: "status", before: "open", after: "resolved" },
+          ...(note ? [{ field: "resolutionNote", before: null, after: note }] : []),
+        ],
+        metadata: {
+          resolutionNote: note,
+          taskTitle,
+        },
+        createdAt: now,
+      });
+      await activities.insertOne(activityDoc, { session });
+      return updated;
+    },
+    async () => {
+      const updated = await blockers.findOneAndUpdate(
+        {
+          _id: blocker._id,
+          organizationId: membership.organizationId,
+          projectId: project._id,
+          status: "open",
+        },
+        {
+          $set: {
+            status: "resolved",
+            resolutionNote: note,
+            resolvedBy: membership.userId,
+            resolvedAt: now,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: "after" },
+      );
+      if (!updated) {
+        return null;
+      }
+
+      const activityDoc = buildActivityDoc({
+        organizationId: membership.organizationId,
+        projectId: project._id,
+        taskId: blocker.taskId,
+        actorId: membership.userId,
+        eventType: "blocker.resolved",
+        targetType: "blocker",
+        targetId: blocker._id,
+        summary: `Resolved blocker on "${taskTitle}"`,
+        changes: [
+          { field: "status", before: "open", after: "resolved" },
+          ...(note ? [{ field: "resolutionNote", before: null, after: note }] : []),
+        ],
+        metadata: {
+          resolutionNote: note,
+          taskTitle,
+        },
+        createdAt: now,
+      });
+      await activities.insertOne(activityDoc);
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    const current = await blockers.findOne({
+      _id: blocker._id,
+      organizationId: membership.organizationId,
+      projectId: project._id,
+    });
+    if (current?.status === "dismissed") {
+      throw new TenantValidationError(
+        "Cannot resolve a dismissed blocker. Reopen or create a new blocker.",
+      );
+    }
+    throw new TenantValidationError("Blocker is already resolved.");
+  }
+
+  const [hydrated] = await hydrateBlockerItems(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return hydrated;
+}
+
+/**
+ * Dismisses an open blocker report (managers and admins only).
+ */
+export async function dismissBlocker(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  blockerId: ObjectId,
+  resolutionNote?: string | null,
+  requestHeaders?: Headers,
+): Promise<BlockerItem> {
+  const membership = await requireMembership(
+    organizationId,
+    MANAGER_ROLES,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+
+  const { blockers, activities, tasks } = await getCollections();
+  const blocker = await blockers.findOne({
+    _id: blockerId,
+    organizationId: membership.organizationId,
+    projectId: project._id,
+  });
+
+  if (!blocker) {
+    throw new TenantValidationError(
+      "Referenced blocker does not belong to this organization or project.",
+    );
+  }
+
+  if (blocker.status === "dismissed") {
+    throw new TenantValidationError("Blocker is already dismissed.");
+  }
+
+  if (blocker.status === "resolved") {
+    throw new TenantValidationError(
+      "Cannot dismiss an already resolved blocker.",
+    );
+  }
+
+  const note =
+    resolutionNote !== undefined && resolutionNote !== null
+      ? resolutionNote.trim()
+      : null;
+  if (note && note.length > 5000) {
+    throw new TenantValidationError(
+      "Resolution note must not exceed 5000 characters.",
+    );
+  }
+
+  const now = new Date();
+  const task = await tasks.findOne({ _id: blocker.taskId });
+  const taskTitle = task?.title ?? "task";
+
+  const updatedDoc = await runInTransactionOrFallback<BlockerDoc | null>(
+    async (session) => {
+      const updated = await blockers.findOneAndUpdate(
+        {
+          _id: blocker._id,
+          organizationId: membership.organizationId,
+          projectId: project._id,
+          status: "open",
+        },
+        {
+          $set: {
+            status: "dismissed",
+            resolutionNote: note,
+            resolvedBy: membership.userId,
+            resolvedAt: now,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: "after", session },
+      );
+      if (!updated) {
+        return null;
+      }
+
+      const activityDoc = buildActivityDoc({
+        organizationId: membership.organizationId,
+        projectId: project._id,
+        taskId: blocker.taskId,
+        actorId: membership.userId,
+        eventType: "blocker.dismissed",
+        targetType: "blocker",
+        targetId: blocker._id,
+        summary: `Dismissed blocker on "${taskTitle}"`,
+        changes: [
+          { field: "status", before: "open", after: "dismissed" },
+          ...(note ? [{ field: "resolutionNote", before: null, after: note }] : []),
+        ],
+        metadata: {
+          resolutionNote: note,
+          taskTitle,
+        },
+        createdAt: now,
+      });
+      await activities.insertOne(activityDoc, { session });
+      return updated;
+    },
+    async () => {
+      const updated = await blockers.findOneAndUpdate(
+        {
+          _id: blocker._id,
+          organizationId: membership.organizationId,
+          projectId: project._id,
+          status: "open",
+        },
+        {
+          $set: {
+            status: "dismissed",
+            resolutionNote: note,
+            resolvedBy: membership.userId,
+            resolvedAt: now,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: "after" },
+      );
+      if (!updated) {
+        return null;
+      }
+
+      const activityDoc = buildActivityDoc({
+        organizationId: membership.organizationId,
+        projectId: project._id,
+        taskId: blocker.taskId,
+        actorId: membership.userId,
+        eventType: "blocker.dismissed",
+        targetType: "blocker",
+        targetId: blocker._id,
+        summary: `Dismissed blocker on "${taskTitle}"`,
+        changes: [
+          { field: "status", before: "open", after: "dismissed" },
+          ...(note ? [{ field: "resolutionNote", before: null, after: note }] : []),
+        ],
+        metadata: {
+          resolutionNote: note,
+          taskTitle,
+        },
+        createdAt: now,
+      });
+      await activities.insertOne(activityDoc);
+      return updated;
+    },
+  );
+
+  if (!updatedDoc) {
+    const current = await blockers.findOne({
+      _id: blocker._id,
+      organizationId: membership.organizationId,
+      projectId: project._id,
+    });
+    if (current?.status === "resolved") {
+      throw new TenantValidationError(
+        "Cannot dismiss an already resolved blocker.",
+      );
+    }
+    throw new TenantValidationError("Blocker is already dismissed.");
+  }
+
+  const [hydrated] = await hydrateBlockerItems(membership.organizationId, [
+    updatedDoc,
+  ]);
+  return hydrated;
+}
+
+/**
+ * Retrieves a single blocker report by ID.
+ * Members can view only if they are the reporter or assigned to the task.
+ * Managers and admins can view any blocker in the project.
+ */
+export async function getBlockerById(
+  organizationId: ObjectId,
+  projectId: ObjectId,
+  blockerId: ObjectId,
+  requestHeaders?: Headers,
+): Promise<BlockerItem> {
+  const membership = await requireMembership(
+    organizationId,
+    undefined,
+    requestHeaders,
+  );
+  const project = await requireProjectInOrg(membership, projectId);
+
+  const { blockers, tasks } = await getCollections();
+  const blocker = await blockers.findOne({
+    _id: blockerId,
+    organizationId: membership.organizationId,
+    projectId: project._id,
+  });
+
+  if (!blocker) {
+    throw new TenantValidationError(
+      "Referenced blocker does not belong to this organization or project.",
+    );
+  }
+
+  if (!isManagerRole(membership.role)) {
+    const task = await tasks.findOne({
+      _id: blocker.taskId,
+      organizationId: membership.organizationId,
+    });
+    const isReporter = blocker.reporterId === membership.userId;
+    const isAssignee = task && task.assigneeId === membership.userId;
+    if (!isReporter && !isAssignee) {
+      throw new TenantAccessError(
+        "Members can only view blockers for tasks assigned to them.",
+      );
+    }
+  }
+
+  const [hydrated] = await hydrateBlockerItems(membership.organizationId, [
+    blocker,
+  ]);
+  return hydrated;
+}
+
 
 
 

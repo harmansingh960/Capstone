@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type SubmitEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type SubmitEvent } from "react";
 import type {
   ActivityEventType,
   ActivityTargetType,
@@ -13,6 +13,13 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@/lib/schema";
+import {
+  TaskFileUploader,
+  type StagedFile,
+  type FileSummary,
+  formatFileSize,
+  getFileCategory,
+} from "./task-file-uploader";
 
 export type ActivityActorSummary = {
   userId: string;
@@ -167,6 +174,21 @@ const ACTIVITY_EVENT_BADGES: Record<
     className:
       "rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
   },
+  "blocker.reported": {
+    label: "Blocker Reported",
+    className:
+      "rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-300",
+  },
+  "blocker.resolved": {
+    label: "Blocker Resolved",
+    className:
+      "rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+  },
+  "blocker.dismissed": {
+    label: "Blocker Dismissed",
+    className:
+      "rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
   "meeting.created": {
     label: "Meeting Created",
     className:
@@ -227,6 +249,16 @@ const ACTIVITY_EVENT_BADGES: Record<
     className:
       "rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-800 dark:border-purple-800 dark:bg-purple-950/60 dark:text-purple-300",
   },
+  "file.uploaded": {
+    label: "File Uploaded",
+    className:
+      "rounded border border-teal-200 bg-teal-50 px-1.5 py-0.5 text-[10px] font-medium text-teal-800 dark:border-teal-800 dark:bg-teal-950/60 dark:text-teal-300",
+  },
+  "file.deleted": {
+    label: "File Deleted",
+    className:
+      "rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-300",
+  },
 };
 
 export type DeliverableSummary = {
@@ -238,6 +270,7 @@ export type DeliverableSummary = {
   url: string | null;
   createdAt: string;
   reviews?: ReviewSummary[];
+  files?: FileSummary[];
 };
 
 export type ReviewSummary = {
@@ -274,6 +307,12 @@ export type TaskSummary = {
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId: string | null;
+  assignee?: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: MembershipRole | null;
+  } | null;
   deadline: string | null;
   approvalRequired: boolean;
   sourceMeetingId?: string | null;
@@ -284,7 +323,7 @@ export type TaskSummary = {
   isBlocked: boolean;
   blockerCount: number;
   dependencyCount: number;
-  dependencies: TaskDependencyItem[];
+  dependencies?: TaskDependencyItem[];
   // Deliverable workflow status – populated by GET /tasks and PATCH /tasks/[id]
   deliverableStatus: TaskDeliverableStatus | null;
   // Phase 5 health & staleness fields
@@ -405,9 +444,33 @@ function getSafeExternalHttpUrl(rawUrl: string | null): string | null {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return null;
     }
+    if (parsed.username || parsed.password) {
+      return null;
+    }
     return parsed.toString();
   } catch {
     return null;
+  }
+}
+
+export function isGoogleDriveUrl(rawUrl: string | null | undefined): boolean {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === "drive.google.com" ||
+      hostname === "docs.google.com" ||
+      hostname.endsWith(".drive.google.com") ||
+      hostname.endsWith(".docs.google.com")
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -420,16 +483,49 @@ function formatMemberLabel(
   userId: string | null,
   currentUserId: string,
   members: MemberOption[],
+  fallbackAssignee?: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: MembershipRole | null;
+  } | null,
 ): string {
   if (!userId) return "Unassigned";
   const match = members.find((m) => m.userId === userId);
   const suffix = userId === currentUserId ? " (you)" : "";
   if (!match) {
+    if (fallbackAssignee && fallbackAssignee.id === userId) {
+      const fbName =
+        typeof fallbackAssignee.name === "string" &&
+        fallbackAssignee.name.trim() !== ""
+          ? fallbackAssignee.name.trim()
+          : null;
+      const fbEmail =
+        typeof fallbackAssignee.email === "string" &&
+        fallbackAssignee.email.trim() !== ""
+          ? fallbackAssignee.email.trim()
+          : null;
+      const fbIdentity =
+        fbName && fbEmail
+          ? `${fbName} (${fbEmail})`
+          : fbName ?? fbEmail ?? userId;
+      const fbRole = fallbackAssignee.role ?? "Former member";
+      return `${fbIdentity}${suffix} · ${fbRole}`;
+    }
     return `${userId}${suffix} · Former member`;
   }
   const hasName =
     typeof match.name === "string" && match.name.trim() !== "";
-  const label = hasName ? `${match.name!.trim()} (${userId})` : userId;
+  const hasEmail =
+    typeof match.email === "string" && match.email.trim() !== "";
+  const label =
+    hasName && hasEmail
+      ? `${match.name!.trim()} (${match.email!.trim()})`
+      : hasName
+        ? match.name!.trim()
+        : hasEmail
+          ? match.email!.trim()
+          : userId;
   return `${label}${suffix} · ${match.role}`;
 }
 
@@ -498,6 +594,336 @@ function sortReviewsNewestFirst(
   });
 }
 
+type InlinePreviewKind = "image" | "pdf" | "video" | null;
+
+function getInlinePreviewKind(
+  mimeType: string,
+  filename?: string,
+): InlinePreviewKind {
+  const lowerMime = (mimeType || "").toLowerCase().trim();
+  const lowerName = (filename || "").toLowerCase().trim();
+
+  // Explicit security exclusion: SVG, HTML, XML, script files must never be rendered inline
+  if (
+    lowerMime.includes("svg") ||
+    lowerMime.includes("html") ||
+    lowerMime.includes("xml") ||
+    lowerMime.includes("javascript") ||
+    lowerName.endsWith(".svg") ||
+    lowerName.endsWith(".html") ||
+    lowerName.endsWith(".htm") ||
+    lowerName.endsWith(".xhtml") ||
+    lowerName.endsWith(".xml")
+  ) {
+    return null;
+  }
+
+  // Safe images: JPG, JPEG, PNG, WebP
+  if (
+    lowerMime === "image/jpeg" ||
+    lowerMime === "image/png" ||
+    lowerMime === "image/webp" ||
+    lowerName.endsWith(".jpg") ||
+    lowerName.endsWith(".jpeg") ||
+    lowerName.endsWith(".png") ||
+    lowerName.endsWith(".webp")
+  ) {
+    return "image";
+  }
+
+  // Safe document: PDF
+  if (lowerMime === "application/pdf" || lowerName.endsWith(".pdf")) {
+    return "pdf";
+  }
+
+  // Safe video: MP4, WebM (MOV is intentionally excluded from browser inline preview)
+  if (
+    lowerMime === "video/mp4" ||
+    lowerMime === "video/webm" ||
+    lowerName.endsWith(".mp4") ||
+    lowerName.endsWith(".webm")
+  ) {
+    return "video";
+  }
+
+  return null;
+}
+
+type DeliverableAttachmentItemProps = {
+  file: FileSummary;
+  organizationSlug: string;
+  projectId: string;
+  taskId: string;
+  isDownloading: boolean;
+  onDownload: (fileId: string) => void;
+  popupFallback: { fileId: string; url: string; filename: string } | null;
+  onClearPopupFallback: () => void;
+};
+
+function DeliverableAttachmentItem({
+  file,
+  organizationSlug,
+  projectId,
+  taskId,
+  isDownloading,
+  onDownload,
+  popupFallback,
+  onClearPopupFallback,
+}: DeliverableAttachmentItemProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewMime, setPreviewMime] = useState<string>(file.mimeType);
+  const [error, setError] = useState<string | null>(null);
+
+  const previewKind = getInlinePreviewKind(file.mimeType, file.originalFilename);
+  const category =
+    file.category || getFileCategory(file.mimeType, file.originalFilename);
+  const isPopupBlocked = popupFallback && popupFallback.fileId === file.id;
+
+  async function loadPreview(force = false) {
+    if (previewUrl && !force) {
+      setIsOpen(true);
+      return;
+    }
+
+    setIsOpen(true);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const endpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/files/${encodeURIComponent(file.id)}/download?disposition=inline`;
+      const res = await fetch(endpoint, { method: "GET", cache: "no-store" });
+      if (!res.ok) {
+        const message = await readApiError(res, "Unable to load preview.");
+        setError(message);
+        return;
+      }
+      const data = (await res.json()) as {
+        downloadUrl?: string;
+        filename?: string;
+        mimeType?: string;
+        disposition?: string;
+      };
+
+      if (!data.downloadUrl) {
+        setError("Preview link was not provided.");
+        return;
+      }
+
+      if (data.disposition === "attachment") {
+        setError(
+          "Inline preview is not permitted for this file type. Please use the Download option.",
+        );
+        return;
+      }
+
+      setPreviewUrl(data.downloadUrl);
+      if (data.mimeType) {
+        setPreviewMime(data.mimeType);
+      }
+    } catch {
+      setError("Network error while loading preview. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleTogglePreview() {
+    if (isOpen) {
+      setIsOpen(false);
+    } else {
+      void loadPreview();
+    }
+  }
+
+  return (
+    <li className="flex flex-col gap-2 rounded border border-zinc-200 bg-zinc-50 p-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span
+            className="font-medium truncate text-zinc-800 dark:text-zinc-200"
+            title={file.originalFilename}
+          >
+            {file.originalFilename}
+          </span>
+          <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+            ({formatFileSize(file.fileSize)})
+          </span>
+          <span className="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            {category}
+          </span>
+          {previewKind ? (
+            <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/60 dark:text-blue-300">
+              Preview Available
+            </span>
+          ) : (
+            <span className="rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[9px] font-medium text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-400">
+              Download Only
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {previewKind && (
+            <button
+              type="button"
+              onClick={handleTogglePreview}
+              className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            >
+              {loading ? "Loading…" : isOpen ? "Hide Preview" : "Preview"}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={isDownloading}
+            onClick={() => void onDownload(file.id)}
+            className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+          >
+            {isDownloading ? "Opening…" : "Download"}
+          </button>
+        </div>
+      </div>
+
+      {isPopupBlocked && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded border border-amber-200 bg-amber-50/80 px-2 py-1 text-[11px] text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+          <span>Pop-up was blocked by your browser.</span>
+          <a
+            href={popupFallback.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClearPopupFallback}
+            className="font-medium text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
+          >
+            Click here to download {popupFallback.filename}
+          </a>
+        </div>
+      )}
+
+      {isOpen && (
+        <div className="mt-1 flex flex-col gap-2 rounded border border-zinc-200/80 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-950">
+          {loading && (
+            <div className="flex items-center justify-center py-6 text-xs text-zinc-500">
+              <span className="animate-pulse">Loading preview from secure storage…</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex flex-col gap-1.5 rounded border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+              <p>{error}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadPreview(true)}
+                  className="rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-zinc-800"
+                >
+                  Retry preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="text-[11px] text-zinc-500 hover:underline dark:text-zinc-400"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && previewUrl && (
+            <div>
+              {previewKind === "image" && (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="relative max-h-96 w-full overflow-hidden rounded border border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50 flex items-center justify-center p-1">
+                    <img
+                      src={previewUrl}
+                      alt={file.originalFilename}
+                      loading="lazy"
+                      className="max-h-96 w-auto max-w-full rounded object-contain"
+                      onError={() =>
+                        setError(
+                          "Failed to render image. The secure link may have expired or the image data is unreadable.",
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="flex w-full items-center justify-between text-[11px] text-zinc-500">
+                    <span>
+                      {file.originalFilename} ({formatFileSize(file.fileSize)})
+                    </span>
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
+                    >
+                      Open full image ↗
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {previewKind === "pdf" && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                      PDF Document Preview
+                    </span>
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
+                    >
+                      Open in new tab ↗
+                    </a>
+                  </div>
+                  <iframe
+                    src={previewUrl}
+                    title={file.originalFilename}
+                    className="h-96 w-full rounded border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+                  />
+                </div>
+              )}
+
+              {previewKind === "video" && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                      Video Preview
+                    </span>
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
+                    >
+                      Open in new tab ↗
+                    </a>
+                  </div>
+                  <video
+                    controls
+                    preload="metadata"
+                    className="max-h-96 w-full rounded border border-zinc-200 bg-black dark:border-zinc-800"
+                    onError={() =>
+                      setError(
+                        "Failed to play video. The secure link may have expired or the video codec is not supported by your browser.",
+                      )
+                    }
+                  >
+                    <source src={previewUrl} type={previewMime} />
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 function DeliverableItem({
   organizationSlug,
   projectId,
@@ -526,6 +952,56 @@ function DeliverableItem({
     null,
   );
   const reviewInFlightRef = useRef(false);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [popupFallback, setPopupFallback] = useState<{
+    fileId: string;
+    url: string;
+    filename: string;
+  } | null>(null);
+
+  async function handleDownloadFile(fileId: string) {
+    setDownloadError(null);
+    setPopupFallback(null);
+    setDownloadingFileId(fileId);
+    try {
+      const endpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/files/${encodeURIComponent(fileId)}/download?disposition=attachment`;
+      const res = await fetch(endpoint, { method: "GET", cache: "no-store" });
+      if (!res.ok) {
+        const message = await readApiError(res, "Unable to get download link.");
+        setDownloadError(message);
+        return;
+      }
+      const data = (await res.json()) as {
+        downloadUrl?: string;
+        filename?: string;
+      };
+      if (data.downloadUrl) {
+        let popup: Window | null = null;
+        try {
+          popup = window.open(data.downloadUrl, "_blank", "noopener,noreferrer");
+        } catch {
+          popup = null;
+        }
+
+        if (!popup || popup.closed || typeof popup.closed === "undefined") {
+          setPopupFallback({
+            fileId,
+            url: data.downloadUrl,
+            filename: data.filename || "file",
+          });
+        }
+      } else {
+        setDownloadError("Download link was not provided.");
+      }
+    } catch {
+      setDownloadError(
+        "Network error while preparing download. Please try again.",
+      );
+    } finally {
+      setDownloadingFileId(null);
+    }
+  }
 
   const reviewsEndpoint = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/deliverables/${encodeURIComponent(deliverable.id)}/reviews`;
 
@@ -671,22 +1147,67 @@ function DeliverableItem({
         </p>
       )}
 
-      {deliverable.url && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-zinc-500">External link:</span>
-          {safeUrl ? (
-            <a
-              href={safeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="break-all font-medium text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
-            >
-              {safeUrl}
-            </a>
-          ) : (
-            <span className="break-all text-zinc-600 dark:text-zinc-400">
-              {deliverable.url}
-            </span>
+      {deliverable.url && (() => {
+        const isDrive = isGoogleDriveUrl(deliverable.url);
+        return (
+          <div className="flex flex-col gap-1 rounded border border-zinc-200/80 bg-zinc-50/70 p-2 text-xs dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-medium text-zinc-600 dark:text-zinc-400">
+                {isDrive ? "Google Drive reference:" : "External link:"}
+              </span>
+              {isDrive && (
+                <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  Google Drive
+                </span>
+              )}
+              {safeUrl ? (
+                <a
+                  href={safeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all font-medium text-blue-600 underline hover:text-blue-500 dark:text-blue-400"
+                >
+                  {safeUrl} ↗
+                </a>
+              ) : (
+                <span className="break-all text-zinc-600 dark:text-zinc-400">
+                  {deliverable.url}
+                </span>
+              )}
+            </div>
+            {isDrive && (
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                External Google Drive file. Ensure link sharing permissions allow reviewers to access this document.
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+      {deliverable.files && deliverable.files.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-t border-zinc-200/60 pt-2 dark:border-zinc-800/60">
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            Attached Files ({deliverable.files.length}):
+          </span>
+          <ul className="flex flex-col gap-1.5">
+            {deliverable.files.map((file) => (
+              <DeliverableAttachmentItem
+                key={file.id}
+                file={file}
+                organizationSlug={organizationSlug}
+                projectId={projectId}
+                taskId={taskId}
+                isDownloading={downloadingFileId === file.id}
+                onDownload={handleDownloadFile}
+                popupFallback={popupFallback}
+                onClearPopupFallback={() => setPopupFallback(null)}
+              />
+            ))}
+          </ul>
+          {downloadError && (
+            <p role="alert" className="text-xs text-red-600">
+              {downloadError}
+            </p>
           )}
         </div>
       )}
@@ -847,9 +1368,14 @@ function DeliverableItem({
             onSubmit={onSubmitReview}
             className="mt-1 flex flex-col gap-2 rounded border border-dashed border-zinc-200 p-2.5 dark:border-zinc-800"
           >
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">
-              Add review
-            </span>
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                Review Submission #{submissionNumber}
+              </span>
+              <span className="text-[11px] text-zinc-500">
+                Supervisor Decision
+              </span>
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <label className="flex flex-col gap-1">
                 <span className="text-zinc-500">Decision</span>
@@ -950,6 +1476,7 @@ function TaskDeliverablesSection({
 
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -1142,11 +1669,41 @@ function TaskDeliverablesSection({
     event.preventDefault();
     if (!canSubmitDeliverable || submitInFlightRef.current) return;
 
+    const hasUploadInProgress = stagedFiles.some(
+      (f) =>
+        f.status === "authorizing" ||
+        f.status === "uploading" ||
+        f.status === "confirming" ||
+        f.status === "removing",
+    );
+    if (hasUploadInProgress) {
+      setSubmitError(
+        "Please wait for all file uploads and removals to finish before submitting.",
+      );
+      setSubmitSuccess(null);
+      return;
+    }
+
+    const hasUploadError = stagedFiles.some((f) => f.status === "error");
+    if (hasUploadError) {
+      setSubmitError(
+        "Please remove or retry failed file uploads before submitting.",
+      );
+      setSubmitSuccess(null);
+      return;
+    }
+
+    const confirmedFileIds = stagedFiles
+      .filter((f) => f.status === "uploaded" && f.fileId)
+      .map((f) => f.fileId as string);
+
     const trimmedDescription = description.trim();
     const trimmedUrl = url.trim();
 
-    if (!trimmedDescription && !trimmedUrl) {
-      setSubmitError("Provide a deliverable description or external URL.");
+    if (!trimmedDescription && !trimmedUrl && confirmedFileIds.length === 0) {
+      setSubmitError(
+        "Provide a deliverable description, external URL, or at least one file attachment.",
+      );
       setSubmitSuccess(null);
       return;
     }
@@ -1177,6 +1734,7 @@ function TaskDeliverablesSection({
         body: JSON.stringify({
           description: trimmedDescription || null,
           url: trimmedUrl || null,
+          fileIds: confirmedFileIds.length > 0 ? confirmedFileIds : undefined,
         }),
       });
 
@@ -1191,6 +1749,7 @@ function TaskDeliverablesSection({
 
       setDescription("");
       setUrl("");
+      setStagedFiles([]);
       setSubmitSuccess(
         hasCurrentChangesRequested
           ? "Revised deliverable submitted. Task remains open until the latest deliverable is approved and the task is marked Done."
@@ -1309,7 +1868,7 @@ function TaskDeliverablesSection({
           </div>
           <label className="flex flex-col gap-1">
             <span className="text-zinc-500">
-              Description (optional if URL provided)
+              Description (optional if URL or files provided)
             </span>
             <textarea
               rows={2}
@@ -1323,7 +1882,7 @@ function TaskDeliverablesSection({
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-zinc-500">
-              External URL (optional if description provided)
+              External link or Google Drive URL (optional if description or files provided)
             </span>
             <input
               type="url"
@@ -1331,10 +1890,28 @@ function TaskDeliverablesSection({
               disabled={submitting}
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://drive.google.com/..."
+              placeholder="https://drive.google.com/... or https://docs.google.com/..."
               className={inputClassName}
             />
+            {isGoogleDriveUrl(url) && (
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                ✓ Google Drive link recognized. Ensure sharing permissions in Google Drive allow project reviewers to access the document.
+              </p>
+            )}
+            {url.trim() !== "" && !getSafeExternalHttpUrl(url) && (
+              <p role="alert" className="text-[11px] text-red-600 dark:text-red-400">
+                Please enter a valid HTTP or HTTPS URL (e.g., https://drive.google.com/...). URLs with embedded credentials are not permitted.
+              </p>
+            )}
           </label>
+          <TaskFileUploader
+            organizationSlug={organizationSlug}
+            projectId={projectId}
+            taskId={task.id}
+            disabled={submitting}
+            stagedFiles={stagedFiles}
+            onStagedFilesChange={setStagedFiles}
+          />
           {submitError && (
             <p role="alert" className="text-red-600">
               {submitError}
@@ -1411,9 +1988,21 @@ function TaskDependenciesSection({
     isBlocked: task.isBlocked,
     blockerCount: task.blockerCount,
     dependencyCount: task.dependencyCount,
-    dependencies: task.dependencies,
+    dependencies: task.dependencies ?? [],
     blockers: [],
   });
+  const [prevTask, setPrevTask] = useState(task);
+  if (task !== prevTask) {
+    setPrevTask(task);
+    setSummary({
+      taskId: task.id,
+      isBlocked: task.isBlocked,
+      blockerCount: task.blockerCount,
+      dependencyCount: task.dependencyCount,
+      dependencies: task.dependencies ?? [],
+      blockers: [],
+    });
+  }
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -1895,6 +2484,7 @@ function TaskActivitySection({
 
   const loadTaskActivity = useCallback(
     async (cursor?: string | null) => {
+      const targetEndpoint = endpoint;
       if (cursor) {
         setLoadingMore(true);
       } else {
@@ -1908,7 +2498,7 @@ function TaskActivitySection({
       }
 
       try {
-        const response = await fetch(`${endpoint}?${params.toString()}`, {
+        const response = await fetch(`${targetEndpoint}?${params.toString()}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -1918,7 +2508,9 @@ function TaskActivitySection({
             response,
             "Unable to load task activity.",
           );
-          setError(message);
+          if (targetEndpoint === endpoint) {
+            setError(message);
+          }
           return;
         }
 
@@ -1928,31 +2520,103 @@ function TaskActivitySection({
         };
         const incoming = Array.isArray(data.activities) ? data.activities : [];
 
-        setFetchedActivities((prev) =>
-          cursor && prev
-            ? sortAndDedupeActivitiesNewestFirst([...prev, ...incoming])
-            : incoming,
-        );
-        setNextCursor(
-          typeof data.nextCursor === "string" ? data.nextCursor : null,
-        );
+        if (targetEndpoint === endpoint) {
+          setFetchedActivities((prev) =>
+            cursor && prev
+              ? sortAndDedupeActivitiesNewestFirst([...prev, ...incoming])
+              : incoming,
+          );
+          setNextCursor(
+            typeof data.nextCursor === "string" ? data.nextCursor : null,
+          );
+        }
       } catch {
-        setError("Network error while loading task activity. Please try again.");
+        if (targetEndpoint === endpoint) {
+          setError("Network error while loading task activity. Please try again.");
+        }
       } finally {
-        setLoading(false);
-        setLoadingMore(false);
+        if (targetEndpoint === endpoint) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     },
     [endpoint],
   );
+
+  const isAutoFetching =
+    fetchedActivities === null &&
+    !error &&
+    (parentLoading || seededActivities.length === 0);
 
   const combinedActivities = sortAndDedupeActivitiesNewestFirst([
     ...seededActivities,
     ...(fetchedActivities ?? []),
   ]);
 
-  const isInitialLoading =
-    loading || (fetchedActivities === null && parentLoading);
+  const isInitialLoading = loading || isAutoFetching;
+
+  useEffect(() => {
+    if (
+      loading ||
+      parentLoading ||
+      seededActivities.length > 0 ||
+      fetchedActivities !== null ||
+      error !== null
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const currentEndpoint = endpoint;
+    const params = new URLSearchParams({ limit: "10" });
+
+    async function fetchInitialTaskActivity() {
+      try {
+        const response = await fetch(`${currentEndpoint}?${params.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          const message = await readApiError(
+            response,
+            "Unable to load task activity.",
+          );
+          if (!cancelled && currentEndpoint === endpoint) {
+            setError(message);
+          }
+          return;
+        }
+
+        const data = (await response.json()) as {
+          activities?: ActivityEntrySummary[];
+          nextCursor?: string | null;
+        };
+        const incoming = Array.isArray(data.activities) ? data.activities : [];
+
+        if (!cancelled && currentEndpoint === endpoint) {
+          setFetchedActivities(incoming);
+          setNextCursor(
+            typeof data.nextCursor === "string" ? data.nextCursor : null,
+          );
+          setError(null);
+        }
+      } catch {
+        if (!cancelled && currentEndpoint === endpoint) {
+          setError(
+            "Network error while loading task activity. Please try again.",
+          );
+        }
+      }
+    }
+
+    void fetchInitialTaskActivity();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [endpoint, error, fetchedActivities, loading, parentLoading, seededActivities.length]);
 
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-zinc-200 pt-2.5 text-xs dark:border-zinc-800">
@@ -1964,7 +2628,7 @@ function TaskActivitySection({
           {error && (
             <button
               type="button"
-              disabled={loading || loadingMore}
+              disabled={loading || loadingMore || isAutoFetching}
               onClick={() => void loadTaskActivity(null)}
               className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
@@ -1973,11 +2637,11 @@ function TaskActivitySection({
           )}
           <button
             type="button"
-            disabled={loading || loadingMore}
+            disabled={loading || loadingMore || isAutoFetching}
             onClick={() => void loadTaskActivity(null)}
             className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {loading
+            {loading || isAutoFetching
               ? "Loading…"
               : fetchedActivities === null
                 ? "Load full task activity"
@@ -2113,9 +2777,23 @@ export function TasksClient({
 }: TasksClientProps) {
   const router = useRouter();
   const canManage = role === "admin" || role === "manager";
+  const canViewProjectActivity = role === "admin" || role === "manager";
   const isProjectArchived = projectStatus === "archived";
 
   const [tasks, setTasks] = useState<TaskWithSubtasks[]>(initialTasks);
+  const [prevInitialTasks, setPrevInitialTasks] =
+    useState<TaskWithSubtasks[]>(initialTasks);
+  if (initialTasks !== prevInitialTasks) {
+    setPrevInitialTasks(initialTasks);
+    setTasks(initialTasks);
+  }
+
+  const [orgMembers, setOrgMembers] = useState<MemberOption[]>(members);
+  const [prevMembers, setPrevMembers] = useState<MemberOption[]>(members);
+  if (members !== prevMembers) {
+    setPrevMembers(members);
+    setOrgMembers(members);
+  }
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [deliverableStatusFilter, setDeliverableStatusFilter] =
@@ -2165,6 +2843,16 @@ export function TasksClient({
   const [subtaskLoading, setSubtaskLoading] = useState(false);
   const [subtaskError, setSubtaskError] = useState<string | null>(null);
   const subtaskInFlight = useRef(false);
+  const subtaskFormRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (subtaskParentId && subtaskFormRef.current) {
+      subtaskFormRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
+  }, [subtaskParentId]);
 
   // Task / subtask edit state
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -2190,7 +2878,9 @@ export function TasksClient({
   const [projectActivityCursor, setProjectActivityCursor] = useState<
     string | null
   >(null);
-  const [projectActivityLoading, setProjectActivityLoading] = useState(true);
+  const [projectActivityLoading, setProjectActivityLoading] = useState(
+    canViewProjectActivity,
+  );
   const [projectActivityLoadingMore, setProjectActivityLoadingMore] =
     useState(false);
   const [projectActivityError, setProjectActivityError] = useState<
@@ -2199,8 +2889,36 @@ export function TasksClient({
 
   const tasksApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/tasks`;
   const projectActivityApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectId)}/activity`;
+  const membersApiUrl = `/api/organizations/${encodeURIComponent(organizationSlug)}/members`;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchLatestMembers() {
+      try {
+        const response = await fetch(membersApiUrl, {
+          method: "GET",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as { members?: MemberOption[] };
+        if (!cancelled && Array.isArray(data.members)) {
+          setOrgMembers(data.members);
+        }
+      } catch {
+        // Keep server-seeded member options on transient network error.
+      }
+    }
+
+    void fetchLatestMembers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [membersApiUrl]);
 
   const refreshProjectActivity = useCallback(async () => {
+    if (!canViewProjectActivity) return;
     setProjectActivityLoading(true);
     setProjectActivityError(null);
     try {
@@ -2240,10 +2958,10 @@ export function TasksClient({
     } finally {
       setProjectActivityLoading(false);
     }
-  }, [projectActivityApiUrl, router]);
+  }, [canViewProjectActivity, projectActivityApiUrl, router]);
 
   const loadMoreProjectActivity = useCallback(async () => {
-    if (!projectActivityCursor || projectActivityLoadingMore) return;
+    if (!canViewProjectActivity || !projectActivityCursor || projectActivityLoadingMore) return;
     setProjectActivityLoadingMore(true);
     setProjectActivityError(null);
 
@@ -2292,9 +3010,13 @@ export function TasksClient({
     } finally {
       setProjectActivityLoadingMore(false);
     }
-  }, [projectActivityApiUrl, projectActivityCursor, projectActivityLoadingMore, router]);
+  }, [canViewProjectActivity, projectActivityApiUrl, projectActivityCursor, projectActivityLoadingMore, router]);
 
   useEffect(() => {
+    if (!canViewProjectActivity) {
+      return;
+    }
+
     let cancelled = false;
 
     async function fetchInitialProjectActivity() {
@@ -2351,7 +3073,7 @@ export function TasksClient({
     return () => {
       cancelled = true;
     };
-  }, [projectActivityApiUrl, router]);
+  }, [canViewProjectActivity, projectActivityApiUrl, router]);
 
   const handleTaskDeliverableStatusChange = useCallback(
     (taskId: string, nextStatus: TaskDeliverableStatus) => {
@@ -2379,14 +3101,18 @@ export function TasksClient({
 
   function canEditTask(task: TaskSummary): boolean {
     if (isProjectArchived) return false;
+    return canManage;
+  }
+
+  function canChangeTaskStatus(task: TaskSummary): boolean {
+    if (isProjectArchived) return false;
     if (canManage) return true;
     return task.assigneeId === currentUserId;
   }
 
   function canCreateSubtaskUnder(parentTask: TaskSummary): boolean {
     if (isProjectArchived || parentTask.parentTaskId !== null) return false;
-    if (canManage) return true;
-    return parentTask.assigneeId === currentUserId;
+    return canManage;
   }
 
   type AdvancedFilterOverrides = {
@@ -2639,7 +3365,7 @@ export function TasksClient({
     setSubtaskTitle("");
     setSubtaskDescription("");
     setSubtaskPriority("medium");
-    setSubtaskAssigneeId(canManage ? "" : currentUserId);
+    setSubtaskAssigneeId("");
     setSubtaskDeadline("");
     setSubtaskApprovalRequired(true);
     setSubtaskError(null);
@@ -2658,7 +3384,7 @@ export function TasksClient({
     parentId: string,
   ) {
     event.preventDefault();
-    if (isProjectArchived || subtaskInFlight.current) return;
+    if (isProjectArchived || !canManage || subtaskInFlight.current) return;
     subtaskInFlight.current = true;
     setSubtaskError(null);
     setActionError(null);
@@ -2673,19 +3399,13 @@ export function TasksClient({
       title: trimmedTitle,
       description: trimmedDesc === "" ? null : subtaskDescription,
       priority: subtaskPriority,
-      assigneeId: canManage
-        ? subtaskAssigneeId === ""
-          ? null
-          : subtaskAssigneeId
-        : currentUserId,
+      assigneeId: subtaskAssigneeId === "" ? null : subtaskAssigneeId,
       deadline:
         subtaskDeadline.trim() === ""
           ? null
           : `${subtaskDeadline.trim()}T00:00:00.000Z`,
+      approvalRequired: subtaskApprovalRequired,
     };
-    if (canManage) {
-      payload.approvalRequired = subtaskApprovalRequired;
-    }
 
     try {
       const response = await fetch(tasksApiUrl, {
@@ -2743,7 +3463,7 @@ export function TasksClient({
   }
 
   async function onQuickStatusChange(task: TaskSummary, nextStatus: TaskStatus) {
-    if (!canEditTask(task) || actionInFlight.current || task.status === nextStatus) {
+    if (!canChangeTaskStatus(task) || actionInFlight.current || task.status === nextStatus) {
       return;
     }
     actionInFlight.current = true;
@@ -2790,6 +3510,72 @@ export function TasksClient({
     }
   }
 
+  async function onQuickAssigneeChange(
+    task: TaskSummary,
+    rawAssigneeId: string,
+  ) {
+    const nextAssigneeId = rawAssigneeId.trim() === "" ? null : rawAssigneeId.trim();
+    if (
+      !canManage ||
+      isProjectArchived ||
+      actionInFlight.current ||
+      (task.assigneeId ?? null) === nextAssigneeId
+    ) {
+      return;
+    }
+    actionInFlight.current = true;
+    setActionError(null);
+    setActionErrorTaskId(null);
+    setActionSuccess(null);
+    setActionLoadingId(task.id);
+
+    try {
+      const response = await fetch(
+        `${tasksApiUrl}/${encodeURIComponent(task.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assigneeId: nextAssigneeId }),
+        },
+      );
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const message = await readApiError(
+          response,
+          "Could not update task assignee.",
+        );
+        setActionError(message);
+        setActionErrorTaskId(task.id);
+        return;
+      }
+
+      const assigneeLabel = formatMemberLabel(
+        nextAssigneeId,
+        currentUserId,
+        orgMembers,
+      );
+      setActionSuccess(
+        nextAssigneeId === null
+          ? `Cleared assignee for "${task.title}".`
+          : `Assigned "${task.title}" to ${assigneeLabel}.`,
+      );
+      await refreshTasks(statusFilter, assigneeFilter, deliverableStatusFilter);
+      void refreshProjectActivity();
+      router.refresh();
+    } catch {
+      setActionError("Could not reach the server. Please try again.");
+      setActionErrorTaskId(task.id);
+    } finally {
+      actionInFlight.current = false;
+      setActionLoadingId(null);
+    }
+  }
+
   async function onSaveTaskEdit(
     event: SubmitEvent<HTMLFormElement>,
     task: TaskSummary,
@@ -2816,7 +3602,7 @@ export function TasksClient({
       const isHistoricalFormerMemberUnchanged =
         nextAssigneeId !== null &&
         nextAssigneeId === task.assigneeId &&
-        !members.some((member) => member.userId === nextAssigneeId);
+        !orgMembers.some((member) => member.userId === nextAssigneeId);
       if (!isHistoricalFormerMemberUnchanged) {
         payload.assigneeId = nextAssigneeId;
       }
@@ -2946,20 +3732,25 @@ export function TasksClient({
                 >
                   <option value="">Unassigned</option>
                   {task.assigneeId &&
-                    !members.some(
+                    !orgMembers.some(
                       (member) => member.userId === task.assigneeId,
                     ) && (
                       <option value={task.assigneeId}>
                         {formatMemberLabel(
                           task.assigneeId,
                           currentUserId,
-                          members,
+                          orgMembers,
+                          task.assignee,
                         )}
                       </option>
                     )}
-                  {members.map((member) => (
+                  {orgMembers.map((member) => (
                     <option key={member.userId} value={member.userId}>
-                      {formatMemberLabel(member.userId, currentUserId, members)}
+                      {formatMemberLabel(
+                        member.userId,
+                        currentUserId,
+                        orgMembers,
+                      )}
                     </option>
                   ))}
                 </select>
@@ -3036,8 +3827,13 @@ export function TasksClient({
     );
   }
 
-  function renderTaskDetails(task: TaskSummary, isSubtask: boolean) {
+  function renderTaskDetails(
+    task: TaskSummary,
+    isSubtask: boolean,
+    subtasksSection?: ReactNode,
+  ) {
     const editable = canEditTask(task);
+    const canChangeStatus = canChangeTaskStatus(task);
     const isBusy = actionLoadingId === task.id;
     const isApprovalRequired = task.approvalRequired === true;
     const taskSpecificError =
@@ -3113,7 +3909,7 @@ export function TasksClient({
                 {DELIVERABLE_STATUS_LABELS[task.deliverableStatus]}
               </span>
             )}
-            {editable ? (
+            {canChangeStatus ? (
               <select
                 aria-label={`Status for ${task.title}`}
                 disabled={isBusy}
@@ -3140,12 +3936,56 @@ export function TasksClient({
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
           <div className="flex flex-wrap items-center gap-3">
-            <span>
-              Assignee:{" "}
-              <strong className="font-normal text-zinc-700 dark:text-zinc-300">
-                {formatMemberLabel(task.assigneeId, currentUserId, members)}
-              </strong>
-            </span>
+            {canManage && !isProjectArchived ? (
+              <label className="inline-flex items-center gap-1.5">
+                <span>Assignee:</span>
+                <select
+                  aria-label={`Assignee for ${task.title}`}
+                  disabled={isBusy}
+                  value={task.assigneeId ?? ""}
+                  onChange={(event) =>
+                    void onQuickAssigneeChange(task, event.target.value)
+                  }
+                  className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                >
+                  <option value="">Unassigned</option>
+                  {task.assigneeId &&
+                    !orgMembers.some(
+                      (member) => member.userId === task.assigneeId,
+                    ) && (
+                      <option value={task.assigneeId}>
+                        {formatMemberLabel(
+                          task.assigneeId,
+                          currentUserId,
+                          orgMembers,
+                          task.assignee,
+                        )}
+                      </option>
+                    )}
+                  {orgMembers.map((member) => (
+                    <option key={member.userId} value={member.userId}>
+                      {formatMemberLabel(
+                        member.userId,
+                        currentUserId,
+                        orgMembers,
+                      )}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <span>
+                Assignee:{" "}
+                <strong className="font-normal text-zinc-700 dark:text-zinc-300">
+                  {formatMemberLabel(
+                    task.assigneeId,
+                    currentUserId,
+                    orgMembers,
+                    task.assignee,
+                  )}
+                </strong>
+              </span>
+            )}
             <span>
               Deadline:{" "}
               <strong className="font-normal text-zinc-700 dark:text-zinc-300">
@@ -3222,6 +4062,8 @@ export function TasksClient({
           </p>
         )}
 
+        {subtasksSection}
+
         <TaskDeliverablesSection
           organizationSlug={organizationSlug}
           projectId={projectId}
@@ -3229,7 +4071,7 @@ export function TasksClient({
           isProjectArchived={isProjectArchived}
           canManage={canManage}
           currentUserId={currentUserId}
-          members={members}
+          members={orgMembers}
           onDeliverableStatusChange={(status) =>
             handleTaskDeliverableStatusChange(task.id, status)
           }
@@ -3237,6 +4079,7 @@ export function TasksClient({
         />
 
         <TaskDependenciesSection
+          key={`task-dependencies-${task.id}`}
           organizationSlug={organizationSlug}
           projectId={projectId}
           task={task}
@@ -3247,15 +4090,18 @@ export function TasksClient({
         />
 
         <TaskActivitySection
+          key={`task-activity-${task.id}`}
           organizationSlug={organizationSlug}
           projectId={projectId}
           task={task}
           currentUserId={currentUserId}
-          members={members}
-          seededActivities={projectActivities.filter(
-            (item) => item.taskId === task.id,
-          )}
-          parentLoading={projectActivityLoading}
+          members={orgMembers}
+          seededActivities={
+            canViewProjectActivity
+              ? projectActivities.filter((item) => item.taskId === task.id)
+              : []
+          }
+          parentLoading={canViewProjectActivity ? projectActivityLoading : false}
         />
       </div>
     );
@@ -3372,48 +4218,54 @@ export function TasksClient({
                 <option value="low">Low</option>
               </select>
             </label>
-            <label className="flex items-center gap-1.5">
-              <span className="text-zinc-500">Assignee:</span>
-              <select
-                disabled={listLoading}
-                value={assigneeFilter}
-                onChange={(event) =>
-                  void onAssigneeFilterChange(event.target.value)
-                }
-                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                <option value="all">All assignees</option>
-                <option value="unassigned">Unassigned</option>
-                {members.map((member) => (
-                  <option key={member.userId} value={member.userId}>
-                    {formatMemberLabel(member.userId, currentUserId, members)}
-                  </option>
-                ))}
-                {Array.from(
-                  new Set(
-                    [
-                      ...tasks.flatMap((task) => [
-                        task.assigneeId,
-                        ...task.subtasks.map((sub) => sub.assigneeId),
-                      ]),
-                      assigneeFilter !== "all" &&
-                      assigneeFilter !== "unassigned"
-                        ? assigneeFilter
-                        : null,
-                    ].filter(
-                      (id): id is string =>
-                        typeof id === "string" &&
-                        id !== "" &&
-                        !members.some((member) => member.userId === id),
+            {canManage && (
+              <label className="flex items-center gap-1.5">
+                <span className="text-zinc-500">Assignee:</span>
+                <select
+                  disabled={listLoading}
+                  value={assigneeFilter}
+                  onChange={(event) =>
+                    void onAssigneeFilterChange(event.target.value)
+                  }
+                  className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="all">All assignees</option>
+                  <option value="unassigned">Unassigned</option>
+                  {orgMembers.map((member) => (
+                    <option key={member.userId} value={member.userId}>
+                      {formatMemberLabel(
+                        member.userId,
+                        currentUserId,
+                        orgMembers,
+                      )}
+                    </option>
+                  ))}
+                  {Array.from(
+                    new Set(
+                      [
+                        ...tasks.flatMap((task) => [
+                          task.assigneeId,
+                          ...task.subtasks.map((sub) => sub.assigneeId),
+                        ]),
+                        assigneeFilter !== "all" &&
+                        assigneeFilter !== "unassigned"
+                          ? assigneeFilter
+                          : null,
+                      ].filter(
+                        (id): id is string =>
+                          typeof id === "string" &&
+                          id !== "" &&
+                          !orgMembers.some((member) => member.userId === id),
+                      ),
                     ),
-                  ),
-                ).map((formerId) => (
-                  <option key={formerId} value={formerId}>
-                    {formatMemberLabel(formerId, currentUserId, members)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                  ).map((formerId) => (
+                    <option key={formerId} value={formerId}>
+                      {formatMemberLabel(formerId, currentUserId, orgMembers)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="flex items-center gap-1.5">
               <span className="text-zinc-500">Deliverable:</span>
               <select
@@ -3619,17 +4471,10 @@ export function TasksClient({
           <ul className="flex flex-col gap-3">
             {tasks.map((task) => {
               const isEditing = editingTaskId === task.id;
-              const isAddingSubtask = subtaskParentId === task.id;
+              const isAddingSubtask = canManage && subtaskParentId === task.id;
 
-              return (
-                <li
-                  key={task.id}
-                  className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
-                >
-                  {isEditing
-                    ? renderTaskEditForm(task)
-                    : renderTaskDetails(task, false)}
-
+              const subtasksSection = (
+                <div className="flex flex-col gap-3">
                   {task.subtasks.length > 0 && (
                     <div className="flex flex-col gap-2 border-l-2 border-zinc-200 pl-3 dark:border-zinc-800">
                       <span className="text-xs font-medium text-zinc-500">
@@ -3641,6 +4486,7 @@ export function TasksClient({
                           return (
                             <li
                               key={subtask.id}
+                              id={`task-${subtask.id}`}
                               className="rounded border border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40"
                             >
                               {isEditingSub
@@ -3655,6 +4501,7 @@ export function TasksClient({
 
                   {isAddingSubtask && (
                     <form
+                      ref={subtaskFormRef}
                       onSubmit={(event) => void onCreateSubtask(event, task.id)}
                       className="flex flex-col gap-3 rounded border border-dashed border-zinc-300 p-3 dark:border-zinc-700"
                     >
@@ -3666,6 +4513,7 @@ export function TasksClient({
                         <input
                           type="text"
                           required
+                          autoFocus
                           maxLength={300}
                           value={subtaskTitle}
                           onChange={(event) =>
@@ -3719,7 +4567,7 @@ export function TasksClient({
                               className={inputClassName}
                             >
                               <option value="">Unassigned</option>
-                              {members.map((member) => (
+                              {orgMembers.map((member) => (
                                 <option
                                   key={member.userId}
                                   value={member.userId}
@@ -3727,7 +4575,7 @@ export function TasksClient({
                                   {formatMemberLabel(
                                     member.userId,
                                     currentUserId,
-                                    members,
+                                    orgMembers,
                                   )}
                                 </option>
                               ))}
@@ -3739,7 +4587,7 @@ export function TasksClient({
                               value={formatMemberLabel(
                                 currentUserId,
                                 currentUserId,
-                                members,
+                                orgMembers,
                               )}
                               className={`${inputClassName} opacity-70`}
                             />
@@ -3805,6 +4653,18 @@ export function TasksClient({
                       </div>
                     </form>
                   )}
+                </div>
+              );
+
+              return (
+                <li
+                  key={task.id}
+                  id={`task-${task.id}`}
+                  className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
+                >
+                  {isEditing
+                    ? renderTaskEditForm(task)
+                    : renderTaskDetails(task, false, subtasksSection)}
                 </li>
               );
             })}
@@ -3869,9 +4729,13 @@ export function TasksClient({
                 className={inputClassName}
               >
                 <option value="">Unassigned</option>
-                {members.map((member) => (
+                {orgMembers.map((member) => (
                   <option key={member.userId} value={member.userId}>
-                    {formatMemberLabel(member.userId, currentUserId, members)}
+                    {formatMemberLabel(
+                      member.userId,
+                      currentUserId,
+                      orgMembers,
+                    )}
                   </option>
                 ))}
               </select>
@@ -3923,17 +4787,19 @@ export function TasksClient({
         </form>
       )}
 
-      <ProjectActivitySection
-        activities={projectActivities}
-        loading={projectActivityLoading}
-        loadingMore={projectActivityLoadingMore}
-        error={projectActivityError}
-        hasMore={projectActivityCursor !== null}
-        currentUserId={currentUserId}
-        members={members}
-        onRefresh={() => void refreshProjectActivity()}
-        onLoadMore={() => void loadMoreProjectActivity()}
-      />
+      {canViewProjectActivity && (
+        <ProjectActivitySection
+          activities={projectActivities}
+          loading={projectActivityLoading}
+          loadingMore={projectActivityLoadingMore}
+          error={projectActivityError}
+          hasMore={projectActivityCursor !== null}
+          currentUserId={currentUserId}
+          members={orgMembers}
+          onRefresh={() => void refreshProjectActivity()}
+          onLoadMore={() => void loadMoreProjectActivity()}
+        />
+      )}
     </div>
   );
 }

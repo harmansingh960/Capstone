@@ -12,6 +12,15 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  async redirects() {
+    return [
+      {
+        source: "/signup",
+        destination: "/member/signup",
+        permanent: false,
+      },
+     ];
+  },
   async headers() {
     const isProduction = process.env.NODE_ENV === "production";
 

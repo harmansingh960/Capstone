@@ -1,0 +1,51 @@
+[
+  {
+    "v": 2,
+    "key": {
+      "_id": 1
+    },
+    "name": "_id_"
+  },
+  {
+    "v": 2,
+    "key": {
+      "meetingId": 1,
+      "status": 1,
+      "createdAt": 1
+    },
+    "name": "meeting_status_created"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "ownerId": 1,
+      "status": 1
+    },
+    "name": "org_owner_status"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "meetingId": 1,
+      "createdAt": 1,
+      "_id": 1
+    },
+    "name": "org_meeting_created_id"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "linkedTaskId": 1
+    },
+    "name": "org_linked_task_unique",
+    "unique": true,
+    "partialFilterExpression": {
+      "linkedTaskId": {
+        "$type": "objectId"
+      }
+    }
+  }
+]

@@ -1,0 +1,272 @@
+[
+  {
+    "_id": "6ae629c9fd519105c0b5ce60",
+    "organizationId": "6ae629c7fd519105c0b5ce5c",
+    "name": "Alpha Project",
+    "description": "End-to-end verification project",
+    "status": "active",
+    "createdBy": "6ae629c6fd519105c0b5ce56",
+    "createdAt": "2026-10-31T17:47:53.847Z",
+    "updatedAt": "2026-10-31T17:47:53.847Z"
+  },
+  {
+    "_id": "6ae62a66fd519105c0b5ce71",
+    "organizationId": "6ae62a64fd519105c0b5ce6e",
+    "name": "Alpha Project",
+    "description": "End-to-end verification project",
+    "status": "active",
+    "createdBy": "6ae629c6fd519105c0b5ce56",
+    "createdAt": "2026-10-31T17:50:30.681Z",
+    "updatedAt": "2026-10-31T17:51:32.029Z"
+  },
+  {
+    "_id": "6ae72a04fd519105c0b5ce84",
+    "organizationId": "6ae729f6fd519105c0b5ce80",
+    "name": "Multi-Role Verification Project",
+    "description": "Created by manager",
+    "status": "active",
+    "createdBy": "6ae629c6fd519105c0b5ce59",
+    "createdAt": "2026-11-01T12:01:08.821Z",
+    "updatedAt": "2026-11-01T12:01:08.821Z"
+  },
+  {
+    "_id": "6ae89ebb2c38c6f2fed96ae6",
+    "organizationId": "6ae89eb52c38c6f2fed96ae2",
+    "name": "Project Alpha zcwzeb",
+    "description": "Main test project for dependencies",
+    "status": "active",
+    "createdBy": "6ae89eb32c38c6f2fed96adc",
+    "createdAt": "2026-11-02T14:31:23.677Z",
+    "updatedAt": "2026-11-02T14:35:41.876Z"
+  },
+  {
+    "_id": "6ae89ebd2c38c6f2fed96ae7",
+    "organizationId": "6ae89eb52c38c6f2fed96ae2",
+    "name": "Project Beta zcwzeb",
+    "description": "Secondary test project for cross-project isolation",
+    "status": "active",
+    "createdBy": "6ae89eb32c38c6f2fed96adc",
+    "createdAt": "2026-11-02T14:31:25.098Z",
+    "updatedAt": "2026-11-02T14:31:25.098Z"
+  },
+  {
+    "_id": "6ae89ebf2c38c6f2fed96aea",
+    "organizationId": "6ae89ebd2c38c6f2fed96ae8",
+    "name": "Project OrgB zcwzeb",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae89eb32c38c6f2fed96adc",
+    "createdAt": "2026-11-02T14:31:27.855Z",
+    "updatedAt": "2026-11-02T14:31:27.855Z"
+  },
+  {
+    "_id": "6ae8a0252c38c6f2fed96b0d",
+    "organizationId": "6ae8a01e2c38c6f2fed96b09",
+    "name": "Project Alpha zd4rqm",
+    "description": "Main test project for dependencies",
+    "status": "active",
+    "createdBy": "6ae8a01c2c38c6f2fed96b00",
+    "createdAt": "2026-11-02T14:37:25.531Z",
+    "updatedAt": "2026-11-02T14:40:08.543Z"
+  },
+  {
+    "_id": "6ae8a0272c38c6f2fed96b0e",
+    "organizationId": "6ae8a01e2c38c6f2fed96b09",
+    "name": "Project Beta zd4rqm",
+    "description": "Secondary test project for cross-project isolation",
+    "status": "active",
+    "createdBy": "6ae8a01c2c38c6f2fed96b00",
+    "createdAt": "2026-11-02T14:37:27.865Z",
+    "updatedAt": "2026-11-02T14:37:27.865Z"
+  },
+  {
+    "_id": "6ae8a02a2c38c6f2fed96b11",
+    "organizationId": "6ae8a0282c38c6f2fed96b0f",
+    "name": "Project OrgB zd4rqm",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8a01c2c38c6f2fed96b00",
+    "createdAt": "2026-11-02T14:37:30.891Z",
+    "updatedAt": "2026-11-02T14:37:30.891Z"
+  },
+  {
+    "_id": "6ae8b2f62c38c6f2fed96b34",
+    "organizationId": "6ae8b2f32c38c6f2fed96b30",
+    "name": "Project 4.2B zg030q",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8b2f12c38c6f2fed96b28",
+    "createdAt": "2026-11-02T15:57:42.987Z",
+    "updatedAt": "2026-11-02T15:57:42.987Z"
+  },
+  {
+    "_id": "6ae8b4262c38c6f2fed96b4d",
+    "organizationId": "6ae8b4212c38c6f2fed96b49",
+    "name": "Project 4.2B zg6kj8",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8b4212c38c6f2fed96b42",
+    "createdAt": "2026-11-02T16:02:46.515Z",
+    "updatedAt": "2026-11-02T16:02:46.515Z"
+  },
+  {
+    "_id": "6ae8b7832c38c6f2fed96b60",
+    "organizationId": "6ae8b7802c38c6f2fed96b5c",
+    "name": "Project 4.2C zgp1xp",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8b77f2c38c6f2fed96b55",
+    "createdAt": "2026-11-02T16:17:07.629Z",
+    "updatedAt": "2026-11-02T16:17:07.629Z"
+  },
+  {
+    "_id": "6ae8bb242c38c6f2fed96b76",
+    "organizationId": "6ae8bb202c38c6f2fed96b72",
+    "name": "Project 4.2D zh8y7a",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8bb1f2c38c6f2fed96b6a",
+    "createdAt": "2026-11-02T16:32:36.257Z",
+    "updatedAt": "2026-11-02T16:34:13.018Z"
+  },
+  {
+    "_id": "6ae8bec52c38c6f2fed96b8f",
+    "organizationId": "6ae8bec12c38c6f2fed96b8b",
+    "name": "Project 4.2D zhsv7d",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8bec02c38c6f2fed96b84",
+    "createdAt": "2026-11-02T16:48:05.033Z",
+    "updatedAt": "2026-11-02T16:48:05.033Z"
+  },
+  {
+    "_id": "6ae8bf522c38c6f2fed96ba3",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "name": "P42E Project A zhvw4x",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8bf4e2c38c6f2fed96b96",
+    "createdAt": "2026-11-02T16:50:26.341Z",
+    "updatedAt": "2026-11-02T16:50:26.341Z"
+  },
+  {
+    "_id": "6ae8bf532c38c6f2fed96ba6",
+    "organizationId": "6ae8bf522c38c6f2fed96ba4",
+    "name": "P42E Project B zhvw4x",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8bf4e2c38c6f2fed96b93",
+    "createdAt": "2026-11-02T16:50:27.872Z",
+    "updatedAt": "2026-11-02T16:50:27.872Z"
+  },
+  {
+    "_id": "6ae8c0312c38c6f2fed96bcc",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "name": "P42E Project A zi0occ",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8c02d2c38c6f2fed96bbf",
+    "createdAt": "2026-11-02T16:54:09.464Z",
+    "updatedAt": "2026-11-02T16:54:09.464Z"
+  },
+  {
+    "_id": "6ae8c0332c38c6f2fed96bcf",
+    "organizationId": "6ae8c0322c38c6f2fed96bcd",
+    "name": "P42E Project B zi0occ",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8c02d2c38c6f2fed96bbe",
+    "createdAt": "2026-11-02T16:54:11.306Z",
+    "updatedAt": "2026-11-02T16:54:11.306Z"
+  },
+  {
+    "_id": "6ae8c8aa2c38c6f2fed96bf3",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "name": "P43B Project zjb63f",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8c8a62c38c6f2fed96be7",
+    "createdAt": "2026-11-02T17:30:18.827Z",
+    "updatedAt": "2026-11-02T17:30:46.620Z"
+  },
+  {
+    "_id": "6ae8ce132c38c6f2fed96c16",
+    "organizationId": "6ae8ce102c38c6f2fed96c12",
+    "name": "P43C Project zk4vef",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8ce102c38c6f2fed96c0a",
+    "createdAt": "2026-11-02T17:53:23.848Z",
+    "updatedAt": "2026-11-02T17:53:23.848Z"
+  },
+  {
+    "_id": "6ae8d4f02c38c6f2fed96c2f",
+    "organizationId": "6ae8d4ee2c38c6f2fed96c2b",
+    "name": "P43D Project zl6jak",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8d4ed2c38c6f2fed96c24",
+    "createdAt": "2026-11-02T18:22:40.971Z",
+    "updatedAt": "2026-11-02T18:22:40.971Z"
+  },
+  {
+    "_id": "6ae8d53c2c38c6f2fed96c49",
+    "organizationId": "6ae8d5392c38c6f2fed96c45",
+    "name": "P43D Project zl85o5",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8d5392c38c6f2fed96c3e",
+    "createdAt": "2026-11-02T18:23:56.748Z",
+    "updatedAt": "2026-11-02T18:23:56.748Z"
+  },
+  {
+    "_id": "6ae8d5922c38c6f2fed96c63",
+    "organizationId": "6ae8d58f2c38c6f2fed96c5f",
+    "name": "P43D Project zl9z8l",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8d58e2c38c6f2fed96c56",
+    "createdAt": "2026-11-02T18:25:22.150Z",
+    "updatedAt": "2026-11-02T18:25:22.150Z"
+  },
+  {
+    "_id": "6ae8e2b92c38c6f2fed96c82",
+    "organizationId": "6ae8e2b82c38c6f2fed96c80",
+    "name": "Org B Project zna3qw",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae8e2b52c38c6f2fed96c71",
+    "createdAt": "2026-11-02T19:21:29.990Z",
+    "updatedAt": "2026-11-02T19:21:29.990Z"
+  },
+  {
+    "_id": "6ae8e2bb2c38c6f2fed96c84",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "name": "Alpha Project Renamed zna3qw",
+    "description": "Updated project scope and objectives.",
+    "status": "active",
+    "createdBy": "6ae8e2b52c38c6f2fed96c72",
+    "createdAt": "2026-11-02T19:21:31.082Z",
+    "updatedAt": "2026-11-02T19:22:28.565Z"
+  },
+  {
+    "_id": "6aea1dc30e620de0934127fd",
+    "organizationId": "6aea1dc10e620de0934127fb",
+    "name": "Debug Project",
+    "description": null,
+    "status": "active",
+    "createdBy": "6aea1dc00e620de0934127f8",
+    "createdAt": "2026-11-03T17:45:39.234Z",
+    "updatedAt": "2026-11-03T17:45:39.234Z"
+  },
+  {
+    "_id": "6aec0cf29c8c96e796063244",
+    "organizationId": "6aec0af99c8c96e796063242",
+    "name": "lemma",
+    "description": null,
+    "status": "active",
+    "createdBy": "6ae3134bbc31a5b1badac3f3",
+    "createdAt": "2026-11-05T04:58:26.046Z",
+    "updatedAt": "2026-11-05T04:58:26.046Z"
+  }
+]

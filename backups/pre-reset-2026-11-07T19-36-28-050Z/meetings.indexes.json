@@ -1,0 +1,52 @@
+[
+  {
+    "v": 2,
+    "key": {
+      "_id": 1
+    },
+    "name": "_id_"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "meetingDate": -1,
+      "_id": -1
+    },
+    "name": "org_meeting_date_id"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "status": 1,
+      "meetingDate": -1
+    },
+    "name": "org_status_meeting_date"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "title": 1
+    },
+    "name": "org_title"
+  },
+  {
+    "v": 2,
+    "key": {
+      "_id": 1,
+      "participantIds": 1
+    },
+    "name": "meeting_participants"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "projectId": 1,
+      "meetingDate": -1
+    },
+    "name": "org_project_meeting_date"
+  }
+]

@@ -388,6 +388,21 @@ export async function POST(
       }
     }
 
+    if (organization.role !== "admin" && organization.role !== "manager") {
+      const isSubtask =
+        "parentTaskId" in record &&
+        record.parentTaskId !== null &&
+        record.parentTaskId !== undefined;
+      return Response.json(
+        {
+          error: isSubtask
+            ? "Only organization admins and managers can create subtasks."
+            : "Only organization admins and managers can create top-level project tasks.",
+        },
+        { status: 403 },
+      );
+    }
+
     let parsedParentTaskId: ObjectId | null | undefined;
     if ("parentTaskId" in record && record.parentTaskId !== undefined) {
       if (record.parentTaskId === null) {

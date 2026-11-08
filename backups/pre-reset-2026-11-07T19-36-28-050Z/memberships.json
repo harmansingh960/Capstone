@@ -1,0 +1,26 @@
+[
+  {
+    "_id": "6aee6438e2c6279a8032a6b4",
+    "organizationId": "6aee6438e2c6279a8032a6b3",
+    "userId": "6aee0aa492c5606e6aefb665",
+    "role": "admin",
+    "createdAt": "2026-11-06T23:35:20.162Z",
+    "updatedAt": "2026-11-06T23:35:20.162Z"
+  },
+  {
+    "_id": "6aee64c4e2c6279a8032a6ba",
+    "organizationId": "6aee6438e2c6279a8032a6b3",
+    "userId": "6aee649de2c6279a8032a6b5",
+    "role": "member",
+    "createdAt": "2026-11-06T23:37:40.847Z",
+    "updatedAt": "2026-11-07T08:37:47.416Z"
+  },
+  {
+    "_id": "6aef1e70395ac584f9382257",
+    "organizationId": "6aee6438e2c6279a8032a6b3",
+    "userId": "6aef1e52395ac584f9382253",
+    "role": "member",
+    "createdAt": "2026-11-07T12:49:52.762Z",
+    "updatedAt": "2026-11-07T12:49:52.762Z"
+  }
+]

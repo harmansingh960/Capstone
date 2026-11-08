@@ -1,0 +1,87 @@
+{
+  "database": "orchestr_dev",
+  "timestamp": "2026-11-06T05:42:34.872Z",
+  "collections": {
+    "account": {
+      "count": 138,
+      "file": "account.json",
+      "indexFile": "account.indexes.json"
+    },
+    "activities": {
+      "count": 68,
+      "file": "activities.json",
+      "indexFile": "activities.indexes.json"
+    },
+    "deliverables": {
+      "count": 57,
+      "file": "deliverables.json",
+      "indexFile": "deliverables.indexes.json"
+    },
+    "files": {
+      "count": 0,
+      "file": "files.json",
+      "indexFile": "files.indexes.json"
+    },
+    "meeting_action_items": {
+      "count": 0,
+      "file": "meeting_action_items.json",
+      "indexFile": "meeting_action_items.indexes.json"
+    },
+    "meetings": {
+      "count": 0,
+      "file": "meetings.json",
+      "indexFile": "meetings.indexes.json"
+    },
+    "memberships": {
+      "count": 66,
+      "file": "memberships.json",
+      "indexFile": "memberships.indexes.json"
+    },
+    "notifications": {
+      "count": 0,
+      "file": "notifications.json",
+      "indexFile": "notifications.indexes.json"
+    },
+    "organizations": {
+      "count": 33,
+      "file": "organizations.json",
+      "indexFile": "organizations.indexes.json"
+    },
+    "projects": {
+      "count": 27,
+      "file": "projects.json",
+      "indexFile": "projects.indexes.json"
+    },
+    "rate_limits": {
+      "count": 0,
+      "file": "rate_limits.json",
+      "indexFile": "rate_limits.indexes.json"
+    },
+    "reviews": {
+      "count": 79,
+      "file": "reviews.json",
+      "indexFile": "reviews.indexes.json"
+    },
+    "session": {
+      "count": 179,
+      "file": "session.json",
+      "indexFile": "session.indexes.json"
+    },
+    "task_dependencies": {
+      "count": 10,
+      "file": "task_dependencies.json",
+      "indexFile": "task_dependencies.indexes.json"
+    },
+    "tasks": {
+      "count": 102,
+      "file": "tasks.json",
+      "indexFile": "tasks.indexes.json"
+    },
+    "user": {
+      "count": 138,
+      "file": "user.json",
+      "indexFile": "user.indexes.json"
+    }
+  },
+  "totalDocuments": 897
+}

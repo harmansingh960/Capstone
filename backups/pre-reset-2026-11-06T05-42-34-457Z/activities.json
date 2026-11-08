@@ -1,0 +1,2407 @@
+[
+  {
+    "_id": "6ae8e2b92c38c6f2fed96c83",
+    "organizationId": "6ae8e2b82c38c6f2fed96c80",
+    "projectId": "6ae8e2b92c38c6f2fed96c82",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c71",
+    "eventType": "project.created",
+    "targetType": "project",
+    "targetId": "6ae8e2b92c38c6f2fed96c82",
+    "summary": "Created project \"Org B Project zna3qw\"",
+    "changes": [
+      {
+        "field": "name",
+        "before": null,
+        "after": "Org B Project zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "active"
+      }
+    ],
+    "metadata": {
+      "projectName": "Org B Project zna3qw",
+      "status": "active"
+    },
+    "createdAt": "2026-11-02T19:21:29.990Z"
+  },
+  {
+    "_id": "6ae8e2bb2c38c6f2fed96c85",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.created",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Created project \"Alpha Project zna3qw\"",
+    "changes": [
+      {
+        "field": "name",
+        "before": null,
+        "after": "Alpha Project zna3qw"
+      },
+      {
+        "field": "description",
+        "before": null,
+        "after": "Initial description for Alpha Project"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "active"
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project zna3qw",
+      "status": "active"
+    },
+    "createdAt": "2026-11-02T19:21:31.082Z"
+  },
+  {
+    "_id": "6ae8e2bc2c38c6f2fed96c86",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.updated",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Renamed project from \"Alpha Project zna3qw\" to \"Alpha Project Renamed zna3qw\"",
+    "changes": [
+      {
+        "field": "name",
+        "before": "Alpha Project zna3qw",
+        "after": "Alpha Project Renamed zna3qw"
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project Renamed zna3qw"
+    },
+    "createdAt": "2026-11-02T19:21:32.452Z"
+  },
+  {
+    "_id": "6ae8e2bd2c38c6f2fed96c87",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.updated",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Updated description for project \"Alpha Project Renamed zna3qw\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Initial description for Alpha Project",
+        "after": "Updated project scope and objectives."
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project Renamed zna3qw"
+    },
+    "createdAt": "2026-11-02T19:21:33.675Z"
+  },
+  {
+    "_id": "6ae8e2bf2c38c6f2fed96c88",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.archived",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Archived project \"Alpha Project Renamed zna3qw\"",
+    "changes": [
+      {
+        "field": "status",
+        "before": "active",
+        "after": "archived"
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project Renamed zna3qw",
+      "status": "archived"
+    },
+    "createdAt": "2026-11-02T19:21:35.006Z"
+  },
+  {
+    "_id": "6ae8e2c02c38c6f2fed96c89",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.unarchived",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Unarchived project \"Alpha Project Renamed zna3qw\"",
+    "changes": [
+      {
+        "field": "status",
+        "before": "archived",
+        "after": "active"
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project Renamed zna3qw",
+      "status": "active"
+    },
+    "createdAt": "2026-11-02T19:21:36.146Z"
+  },
+  {
+    "_id": "6ae8e2c12c38c6f2fed96c8b",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Created task \"Main Feature Development\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Main Feature Development"
+      },
+      {
+        "field": "description",
+        "before": null,
+        "after": "Initial task description"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": "6ae8e2b52c38c6f2fed96c73"
+      },
+      {
+        "field": "deadline",
+        "before": null,
+        "after": "2026-12-01T00:00:00.000Z"
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:37.533Z"
+  },
+  {
+    "_id": "6ae8e2c32c38c6f2fed96c8d",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c32c38c6f2fed96c8c",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "subtask.created",
+    "targetType": "subtask",
+    "targetId": "6ae8e2c32c38c6f2fed96c8c",
+    "summary": "Created subtask \"Subtask 1 - API Implementation\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Subtask 1 - API Implementation"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "high"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": "6ae8e2b52c38c6f2fed96c73"
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Subtask 1 - API Implementation",
+      "parentTaskId": "6ae8e2c12c38c6f2fed96c8a",
+      "isSubtask": true
+    },
+    "createdAt": "2026-11-02T19:21:39.640Z"
+  },
+  {
+    "_id": "6ae8e2c62c38c6f2fed96c8e",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated title and description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": "Main Feature Development",
+        "after": "Main Feature Development (V2)"
+      },
+      {
+        "field": "description",
+        "before": "Initial task description",
+        "after": "Detailed acceptance criteria updated."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:42.075Z"
+  },
+  {
+    "_id": "6ae8e2ca2c38c6f2fed96c8f",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c73",
+    "eventType": "task.status_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Changed status of task \"Main Feature Development (V2)\" from To do to In progress",
+    "changes": [
+      {
+        "field": "status",
+        "before": "todo",
+        "after": "in_progress"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:45.958Z"
+  },
+  {
+    "_id": "6ae8e2cd2c38c6f2fed96c90",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.priority_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Changed priority of task \"Main Feature Development (V2)\" from Medium to Urgent",
+    "changes": [
+      {
+        "field": "priority",
+        "before": "medium",
+        "after": "urgent"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:48.933Z"
+  },
+  {
+    "_id": "6ae8e2d02c38c6f2fed96c91",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.assignee_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Reassigned task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "assigneeId",
+        "before": "6ae8e2b52c38c6f2fed96c73",
+        "after": "6ae8e2b52c38c6f2fed96c70"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:52.107Z"
+  },
+  {
+    "_id": "6ae8e2d32c38c6f2fed96c92",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.assignee_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Reassigned task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "assigneeId",
+        "before": "6ae8e2b52c38c6f2fed96c70",
+        "after": "6ae8e2b52c38c6f2fed96c73"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:54.975Z"
+  },
+  {
+    "_id": "6ae8e2d62c38c6f2fed96c93",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.deadline_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Changed deadline on task \"Main Feature Development (V2)\" from 2026-12-01 to 2026-12-15",
+    "changes": [
+      {
+        "field": "deadline",
+        "before": "2026-12-01T00:00:00.000Z",
+        "after": "2026-12-15T00:00:00.000Z"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:21:58.046Z"
+  },
+  {
+    "_id": "6ae8e2d92c38c6f2fed96c94",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.approval_required_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Disabled deliverable approval requirement on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "approvalRequired",
+        "before": true,
+        "after": false
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:00.926Z"
+  },
+  {
+    "_id": "6ae8e2db2c38c6f2fed96c95",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.approval_required_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Enabled deliverable approval requirement on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "approvalRequired",
+        "before": false,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:03.782Z"
+  },
+  {
+    "_id": "6ae8e2dd2c38c6f2fed96c97",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2dd2c38c6f2fed96c96",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e2dd2c38c6f2fed96c96",
+    "summary": "Created task \"Prerequisite Database Migration\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Prerequisite Database Migration"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "high"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Prerequisite Database Migration",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:05.828Z"
+  },
+  {
+    "_id": "6ae8e2e02c38c6f2fed96c99",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "dependency.added",
+    "targetType": "dependency",
+    "targetId": "6ae8e2e02c38c6f2fed96c98",
+    "summary": "Added prerequisite \"Prerequisite Database Migration\" to \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "prerequisiteTaskId",
+        "before": null,
+        "after": "6ae8e2dd2c38c6f2fed96c96"
+      },
+      {
+        "field": "prerequisiteTitle",
+        "before": null,
+        "after": "Prerequisite Database Migration"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "prerequisiteTaskId": "6ae8e2dd2c38c6f2fed96c96",
+      "prerequisiteTitle": "Prerequisite Database Migration",
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:07.776Z"
+  },
+  {
+    "_id": "6ae8e2e22c38c6f2fed96c9a",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "dependency.removed",
+    "targetType": "dependency",
+    "targetId": "6ae8e2e02c38c6f2fed96c98",
+    "summary": "Removed prerequisite \"Prerequisite Database Migration\" from \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "prerequisiteTaskId",
+        "before": "6ae8e2dd2c38c6f2fed96c96",
+        "after": null
+      },
+      {
+        "field": "prerequisiteTitle",
+        "before": "Prerequisite Database Migration",
+        "after": null
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "prerequisiteTaskId": "6ae8e2dd2c38c6f2fed96c96",
+      "prerequisiteTitle": "Prerequisite Database Migration",
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:10.948Z"
+  },
+  {
+    "_id": "6ae8e2e72c38c6f2fed96c9c",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c73",
+    "eventType": "deliverable.submitted",
+    "targetType": "deliverable",
+    "targetId": "6ae8e2e72c38c6f2fed96c9b",
+    "summary": "Submitted deliverable #1 for \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": null,
+        "after": "Initial deliverable submission with architecture diagrams."
+      },
+      {
+        "field": "url",
+        "before": null,
+        "after": "https://example.com/spec-v1.pdf"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "deliverableId": "6ae8e2e72c38c6f2fed96c9b",
+      "submissionNumber": 1,
+      "isRevision": false,
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:15.253Z"
+  },
+  {
+    "_id": "6ae8e2e82c38c6f2fed96c9e",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "review.changes_requested",
+    "targetType": "review",
+    "targetId": "6ae8e2e82c38c6f2fed96c9d",
+    "summary": "Requested changes on deliverable for \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "decision",
+        "before": null,
+        "after": "changes_requested"
+      },
+      {
+        "field": "comment",
+        "before": null,
+        "after": "Please add error recovery handling in API endpoints."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "deliverableId": "6ae8e2e72c38c6f2fed96c9b",
+      "reviewId": "6ae8e2e82c38c6f2fed96c9d",
+      "decision": "changes_requested",
+      "previousDecision": null,
+      "isSubsequentReview": false,
+      "isSelfReview": false,
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:16.784Z"
+  },
+  {
+    "_id": "6ae8e2ea2c38c6f2fed96ca0",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "review.decision_updated",
+    "targetType": "review",
+    "targetId": "6ae8e2ea2c38c6f2fed96c9f",
+    "summary": "Updated review decision on \"Main Feature Development (V2)\" from Changes requested to Approved",
+    "changes": [
+      {
+        "field": "decision",
+        "before": "changes_requested",
+        "after": "approved"
+      },
+      {
+        "field": "comment",
+        "before": "Please add error recovery handling in API endpoints.",
+        "after": "Override: temporarily approving for internal QA."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "deliverableId": "6ae8e2e72c38c6f2fed96c9b",
+      "reviewId": "6ae8e2ea2c38c6f2fed96c9f",
+      "decision": "approved",
+      "previousDecision": "changes_requested",
+      "isSubsequentReview": true,
+      "isSelfReview": false,
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:18.327Z"
+  },
+  {
+    "_id": "6ae8e2ec2c38c6f2fed96ca2",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c73",
+    "eventType": "deliverable.submitted",
+    "targetType": "deliverable",
+    "targetId": "6ae8e2ec2c38c6f2fed96ca1",
+    "summary": "Submitted revised deliverable #2 for \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": null,
+        "after": "Revised deliverable #2 addressing error recovery."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "deliverableId": "6ae8e2ec2c38c6f2fed96ca1",
+      "submissionNumber": 2,
+      "isRevision": true,
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:20.400Z"
+  },
+  {
+    "_id": "6ae8e2ed2c38c6f2fed96ca4",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c70",
+    "eventType": "review.approved",
+    "targetType": "review",
+    "targetId": "6ae8e2ed2c38c6f2fed96ca3",
+    "summary": "Approved deliverable for \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "decision",
+        "before": null,
+        "after": "approved"
+      },
+      {
+        "field": "comment",
+        "before": null,
+        "after": "All requirements satisfied. Approved!"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "deliverableId": "6ae8e2ec2c38c6f2fed96ca1",
+      "reviewId": "6ae8e2ed2c38c6f2fed96ca3",
+      "decision": "approved",
+      "previousDecision": null,
+      "isSubsequentReview": false,
+      "isSelfReview": false,
+      "parentTaskId": null
+    },
+    "createdAt": "2026-11-02T19:22:21.915Z"
+  },
+  {
+    "_id": "6ae8e2f22c38c6f2fed96ca5",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.archived",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Archived project \"Alpha Project Renamed zna3qw\"",
+    "changes": [
+      {
+        "field": "status",
+        "before": "active",
+        "after": "archived"
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project Renamed zna3qw",
+      "status": "archived"
+    },
+    "createdAt": "2026-11-02T19:22:25.902Z"
+  },
+  {
+    "_id": "6ae8e2f42c38c6f2fed96ca6",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": null,
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "project.unarchived",
+    "targetType": "project",
+    "targetId": "6ae8e2bb2c38c6f2fed96c84",
+    "summary": "Unarchived project \"Alpha Project Renamed zna3qw\"",
+    "changes": [
+      {
+        "field": "status",
+        "before": "archived",
+        "after": "active"
+      }
+    ],
+    "metadata": {
+      "projectName": "Alpha Project Renamed zna3qw",
+      "status": "active"
+    },
+    "createdAt": "2026-11-02T19:22:28.565Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cac",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cab",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cab",
+    "summary": "Created task \"Pagination Test Task 13 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 13 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 13 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.414Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96caa",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96ca9",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96ca9",
+    "summary": "Created task \"Pagination Test Task 16 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 16 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 16 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.344Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96ca8",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96ca7",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96ca7",
+    "summary": "Created task \"Pagination Test Task 4 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 4 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 4 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.337Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cba",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cb9",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cb9",
+    "summary": "Created task \"Pagination Test Task 12 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 12 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 12 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.519Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cb0",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96caf",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96caf",
+    "summary": "Created task \"Pagination Test Task 26 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 26 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 26 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.420Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cb4",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cb3",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cb3",
+    "summary": "Created task \"Pagination Test Task 3 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 3 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 3 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.517Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cb8",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cb7",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cb7",
+    "summary": "Created task \"Pagination Test Task 29 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 29 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 29 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.518Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cb6",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cb5",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cb5",
+    "summary": "Created task \"Pagination Test Task 8 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 8 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 8 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.518Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cbe",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cbd",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cbd",
+    "summary": "Created task \"Pagination Test Task 19 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 19 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 19 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.519Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cbc",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cbb",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cbb",
+    "summary": "Created task \"Pagination Test Task 21 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 21 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 21 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.519Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cae",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cad",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cad",
+    "summary": "Created task \"Pagination Test Task 2 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 2 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 2 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.420Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96ccc",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96ccb",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96ccb",
+    "summary": "Created task \"Pagination Test Task 18 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 18 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 18 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.615Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cc6",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cc5",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cc5",
+    "summary": "Created task \"Pagination Test Task 22 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 22 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 22 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.521Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cc2",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cc1",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cc1",
+    "summary": "Created task \"Pagination Test Task 9 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 9 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 9 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.520Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cca",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cc9",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cc9",
+    "summary": "Created task \"Pagination Test Task 25 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 25 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 25 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.615Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cce",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96ccd",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96ccd",
+    "summary": "Created task \"Pagination Test Task 30 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 30 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 30 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.616Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cc8",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cc7",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cc7",
+    "summary": "Created task \"Pagination Test Task 14 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 14 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 14 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.522Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cc4",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cc3",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cc3",
+    "summary": "Created task \"Pagination Test Task 17 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 17 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 17 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.521Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cd0",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96ccf",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96ccf",
+    "summary": "Created task \"Pagination Test Task 24 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 24 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 24 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.618Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cd2",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cd1",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cd1",
+    "summary": "Created task \"Pagination Test Task 27 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 27 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 27 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.720Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96cd4",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cd3",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cd3",
+    "summary": "Created task \"Pagination Test Task 1 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 1 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 1 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.244Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96cd8",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cd7",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cd7",
+    "summary": "Created task \"Pagination Test Task 23 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 23 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 23 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.247Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96cda",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cd9",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cd9",
+    "summary": "Created task \"Pagination Test Task 6 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 6 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 6 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.332Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96cd6",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cd5",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cd5",
+    "summary": "Created task \"Pagination Test Task 28 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 28 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 28 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.246Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96cdc",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cdb",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cdb",
+    "summary": "Created task \"Pagination Test Task 7 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 7 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 7 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.456Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cb2",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cb1",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cb1",
+    "summary": "Created task \"Pagination Test Task 11 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 11 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 11 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.423Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96ce0",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cdf",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cdf",
+    "summary": "Created task \"Pagination Test Task 10 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 10 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 10 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.469Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96cde",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96cdd",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96cdd",
+    "summary": "Created task \"Pagination Test Task 20 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 20 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 20 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.468Z"
+  },
+  {
+    "_id": "6ae8e3032c38c6f2fed96cc0",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3032c38c6f2fed96cbf",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3032c38c6f2fed96cbf",
+    "summary": "Created task \"Pagination Test Task 5 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 5 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 5 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:43.519Z"
+  },
+  {
+    "_id": "6ae8e3042c38c6f2fed96ce2",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e3042c38c6f2fed96ce1",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6ae8e3042c38c6f2fed96ce1",
+    "summary": "Created task \"Pagination Test Task 15 zna3qw\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Pagination Test Task 15 zna3qw"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "medium"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": null
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Pagination Test Task 15 zna3qw",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-02T19:22:44.663Z"
+  },
+  {
+    "_id": "6ae9d8b322a21e224b1fc64c",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Detailed acceptance criteria updated.",
+        "after": "Updated for verification"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T12:50:59.554Z"
+  },
+  {
+    "_id": "6ae9d8b822a21e224b1fc64d",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Updated for verification",
+        "after": "Detailed acceptance criteria updated."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T12:51:04.022Z"
+  },
+  {
+    "_id": "6ae9d8bc22a21e224b1fc64e",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2dd2c38c6f2fed96c96",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.priority_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2dd2c38c6f2fed96c96",
+    "summary": "Changed priority of task \"Prerequisite Database Migration\" from High to Medium",
+    "changes": [
+      {
+        "field": "priority",
+        "before": "high",
+        "after": "medium"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Prerequisite Database Migration",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T12:51:08.487Z"
+  },
+  {
+    "_id": "6ae9d8cd22a21e224b1fc64f",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.status_changed",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Changed status of task \"Main Feature Development (V2)\" from In progress to Done",
+    "changes": [
+      {
+        "field": "status",
+        "before": "in_progress",
+        "after": "done"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T12:51:25.665Z"
+  },
+  {
+    "_id": "6ae9dafb0e620de09341274c",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Detailed acceptance criteria updated.",
+        "after": "Updated for verification"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T13:00:43.197Z"
+  },
+  {
+    "_id": "6ae9db020e620de09341274d",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Updated for verification",
+        "after": "Detailed acceptance criteria updated."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T13:00:50.008Z"
+  },
+  {
+    "_id": "6ae9db750e620de093412755",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Detailed acceptance criteria updated.",
+        "after": "Updated for verification"
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T13:02:45.732Z"
+  },
+  {
+    "_id": "6ae9db7e0e620de093412756",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "actorId": "6ae8e2b52c38c6f2fed96c72",
+    "eventType": "task.updated",
+    "targetType": "task",
+    "targetId": "6ae8e2c12c38c6f2fed96c8a",
+    "summary": "Updated description on task \"Main Feature Development (V2)\"",
+    "changes": [
+      {
+        "field": "description",
+        "before": "Updated for verification",
+        "after": "Detailed acceptance criteria updated."
+      }
+    ],
+    "metadata": {
+      "taskTitle": "Main Feature Development (V2)",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-03T13:02:53.923Z"
+  },
+  {
+    "_id": "6aea1dc30e620de0934127fe",
+    "organizationId": "6aea1dc10e620de0934127fb",
+    "projectId": "6aea1dc30e620de0934127fd",
+    "taskId": null,
+    "actorId": "6aea1dc00e620de0934127f8",
+    "eventType": "project.created",
+    "targetType": "project",
+    "targetId": "6aea1dc30e620de0934127fd",
+    "summary": "Created project \"Debug Project\"",
+    "changes": [
+      {
+        "field": "name",
+        "before": null,
+        "after": "Debug Project"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "active"
+      }
+    ],
+    "metadata": {
+      "projectName": "Debug Project",
+      "status": "active"
+    },
+    "createdAt": "2026-11-03T17:45:39.234Z"
+  },
+  {
+    "_id": "6aeab72294cad3e6317473ae",
+    "organizationId": "6aeab72294cad3e6317473ab",
+    "projectId": null,
+    "taskId": null,
+    "actorId": "6aeab72194cad3e6317473a8",
+    "eventType": "meeting.created",
+    "targetType": "meeting",
+    "targetId": "6aeab72294cad3e6317473ad",
+    "summary": "Created meeting \"Trace Meeting\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "Trace Meeting"
+      },
+      {
+        "field": "meetingDate",
+        "before": null,
+        "after": "2026-11-04T04:40:02.284Z"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "scheduled"
+      }
+    ],
+    "metadata": {
+      "meetingTitle": "Trace Meeting",
+      "participantCount": 0
+    },
+    "createdAt": "2026-11-04T04:40:02.572Z"
+  },
+  {
+    "_id": "6aec0cf29c8c96e796063245",
+    "organizationId": "6aec0af99c8c96e796063242",
+    "projectId": "6aec0cf29c8c96e796063244",
+    "taskId": null,
+    "actorId": "6ae3134bbc31a5b1badac3f3",
+    "eventType": "project.created",
+    "targetType": "project",
+    "targetId": "6aec0cf29c8c96e796063244",
+    "summary": "Created project \"lemma\"",
+    "changes": [
+      {
+        "field": "name",
+        "before": null,
+        "after": "lemma"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "active"
+      }
+    ],
+    "metadata": {
+      "projectName": "lemma",
+      "status": "active"
+    },
+    "createdAt": "2026-11-05T04:58:26.046Z"
+  },
+  {
+    "_id": "6aec0e659c8c96e796063248",
+    "organizationId": "6aec0af99c8c96e796063242",
+    "projectId": "6aec0cf29c8c96e796063244",
+    "taskId": "6aec0e659c8c96e796063247",
+    "actorId": "6ae3134bbc31a5b1badac3f3",
+    "eventType": "task.created",
+    "targetType": "task",
+    "targetId": "6aec0e659c8c96e796063247",
+    "summary": "Created task \"backend lemma\"",
+    "changes": [
+      {
+        "field": "title",
+        "before": null,
+        "after": "backend lemma"
+      },
+      {
+        "field": "status",
+        "before": null,
+        "after": "todo"
+      },
+      {
+        "field": "priority",
+        "before": null,
+        "after": "urgent"
+      },
+      {
+        "field": "assigneeId",
+        "before": null,
+        "after": "6ae3134bbc31a5b1badac3f3"
+      },
+      {
+        "field": "deadline",
+        "before": null,
+        "after": "2026-12-12T00:00:00.000Z"
+      },
+      {
+        "field": "approvalRequired",
+        "before": null,
+        "after": true
+      }
+    ],
+    "metadata": {
+      "taskTitle": "backend lemma",
+      "parentTaskId": null,
+      "isSubtask": false
+    },
+    "createdAt": "2026-11-05T05:04:37.067Z"
+  }
+]

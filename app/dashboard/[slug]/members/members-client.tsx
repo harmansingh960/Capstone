@@ -11,13 +11,14 @@ export type MemberSummary = {
   email: string | null;
 };
 
-type AddableRole = "manager" | "member";
+type AddableRole = "admin" | "manager" | "member";
 
 type MembersClientProps = {
   organizationSlug: string;
   currentUserRole: MembershipRole;
   currentUserId: string;
   initialMembers: MemberSummary[];
+  isPlatformAdmin?: boolean;
 };
 
 const ROLE_LABELS: Record<MembershipRole, string> = {
@@ -59,9 +60,12 @@ export function MembersClient({
   currentUserRole,
   currentUserId,
   initialMembers,
+  isPlatformAdmin = false,
 }: MembersClientProps) {
   const router = useRouter();
   const isAdmin = currentUserRole === "admin";
+  const isManager = currentUserRole === "manager";
+  const canAddMember = isAdmin || isManager;
 
   const [members, setMembers] = useState<MemberSummary[]>(initialMembers);
   const [listLoading, setListLoading] = useState(false);
@@ -123,7 +127,21 @@ export function MembersClient({
 
   async function onAddMember(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!isAdmin || addInFlight.current) return;
+    if (!canAddMember || addInFlight.current) return;
+
+    const trimmedEmail = addEmail.trim();
+
+    if (isManager && addRole !== "member") {
+      setAddError("Managers can only add members with the member role.");
+      return;
+    }
+
+    if ((addRole === "manager" || addRole === "admin") && !isPlatformAdmin) {
+      setAddError(
+        "Only the platform administrator can grant manager or admin roles.",
+      );
+      return;
+    }
 
     addInFlight.current = true;
     setAddError(null);
@@ -131,8 +149,6 @@ export function MembersClient({
     setActionError(null);
     setActionSuccess(null);
     setAddLoading(true);
-
-    const trimmedEmail = addEmail.trim();
 
     try {
       const response = await fetch(membersApiUrl, {
@@ -173,6 +189,13 @@ export function MembersClient({
 
   async function onChangeRole(member: MemberSummary, nextRole: MembershipRole) {
     if (!isAdmin || actionInFlight.current || member.role === nextRole) {
+      return;
+    }
+
+    if ((nextRole === "manager" || nextRole === "admin") && !isPlatformAdmin) {
+      setActionError(
+        "Only the platform administrator can grant manager or admin roles.",
+      );
       return;
     }
 
@@ -294,10 +317,22 @@ export function MembersClient({
           </h2>
         </div>
 
-        {!isAdmin && (
+        {!canAddMember && (
           <p className="text-xs text-zinc-500">
-            Only organization admins can add members, change roles, or remove
-            members.
+            Only organization admins and managers can add members. Only
+            organization admins can change roles or remove members.
+          </p>
+        )}
+        {isManager && (
+          <p className="text-xs text-zinc-500">
+            As an organization manager, you can add members with the Member
+            role. Only organization admins can change roles or remove members.
+          </p>
+        )}
+        {isAdmin && !isPlatformAdmin && (
+          <p className="text-xs text-zinc-500">
+            As an organization admin, you can add and remove members. Only the
+            global platform administrator can grant Manager or Admin roles.
           </p>
         )}
 
@@ -389,8 +424,28 @@ export function MembersClient({
                               }
                               className="rounded border border-zinc-300 bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
                             >
-                              <option value="admin">Admin</option>
-                              <option value="manager">Manager</option>
+                              <option
+                                value="admin"
+                                disabled={
+                                  !isPlatformAdmin && member.role !== "admin"
+                                }
+                              >
+                                Admin
+                                {!isPlatformAdmin
+                                  ? " (Platform Admin only)"
+                                  : ""}
+                              </option>
+                              <option
+                                value="manager"
+                                disabled={
+                                  !isPlatformAdmin && member.role !== "manager"
+                                }
+                              >
+                                Manager
+                                {!isPlatformAdmin
+                                  ? " (Platform Admin only)"
+                                  : ""}
+                              </option>
                               <option value="member">Member</option>
                             </select>
                           </label>
@@ -451,14 +506,16 @@ export function MembersClient({
         )}
       </section>
 
-      {isAdmin && (
+      {canAddMember && (
         <form
           onSubmit={(event) => void onAddMember(event)}
           className="flex flex-col gap-3 rounded border border-zinc-200 p-4 dark:border-zinc-800"
         >
           <h2 className="text-lg font-medium">Add organization member</h2>
           <p className="text-xs text-zinc-500">
-            Add an existing registered user by their account email address.
+            {isManager
+              ? "Add an existing registered user as a member by their account email address."
+              : "Add an existing registered user by their account email address."}
           </p>
           <label className="flex flex-col gap-1 text-sm">
             User email
@@ -484,7 +541,16 @@ export function MembersClient({
               className={inputClassName}
             >
               <option value="member">Member</option>
-              <option value="manager">Manager</option>
+              {isAdmin && (
+                <>
+                  <option value="manager" disabled={!isPlatformAdmin}>
+                    Manager{!isPlatformAdmin ? " (Platform Admin only)" : ""}
+                  </option>
+                  <option value="admin" disabled={!isPlatformAdmin}>
+                    Admin{!isPlatformAdmin ? " (Platform Admin only)" : ""}
+                  </option>
+                </>
+              )}
             </select>
           </label>
           {addError && (

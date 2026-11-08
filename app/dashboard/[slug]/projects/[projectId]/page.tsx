@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
+import type { ObjectId } from "mongodb";
 import { getAuth } from "@/lib/auth";
 import type { ProjectDoc } from "@/lib/schema";
 import {
@@ -9,7 +11,10 @@ import {
   getProjectById,
   listOrganizationMembers,
   parseObjectId,
+  queryProjectTasks,
+  serializeTaskAssignee,
   TenantAccessError,
+  type EnrichedTaskItem,
   type UserOrganization,
 } from "@/lib/tenancy";
 import { SignOutButton } from "../../../sign-out-button";
@@ -19,6 +24,8 @@ import {
   type TaskSummary,
   type TaskWithSubtasks,
 } from "./tasks-client";
+
+export const instant = false;
 
 export default function ProjectTasksWorkspacePage({
   params,
@@ -34,57 +41,95 @@ export default function ProjectTasksWorkspacePage({
   );
 }
 
+function serializeTaskSummary(item: EnrichedTaskItem): TaskSummary {
+  return {
+    id: item.id,
+    projectId: item.projectId,
+    parentTaskId: item.parentTaskId,
+    title: item.title,
+    description: item.description,
+    status: item.status,
+    priority: item.priority,
+    assigneeId: item.assigneeId,
+    assignee: serializeTaskAssignee(item.assignee),
+    deadline: item.deadline ? item.deadline.toISOString() : null,
+    approvalRequired: item.approvalRequired,
+    deliverableStatus: item.deliverableStatus,
+    isBlocked: item.isBlocked,
+    blockerCount: item.blockerCount,
+    dependencyCount: item.dependencyCount,
+    dependencies: (item.dependencies ?? []).map((dep) => ({
+      id: dep.id,
+      projectId: dep.projectId,
+      taskId: dep.taskId,
+      prerequisiteTaskId: dep.prerequisiteTaskId,
+      prerequisiteTitle: dep.prerequisiteTitle,
+      prerequisiteStatus: dep.prerequisiteStatus,
+      prerequisiteParentTaskId: dep.prerequisiteParentTaskId,
+      isBlocking: dep.isBlocking,
+      createdBy: dep.createdBy,
+      createdAt:
+        dep.createdAt instanceof Date
+          ? dep.createdAt.toISOString()
+          : String(dep.createdAt),
+    })),
+    isOverdue: item.isOverdue,
+    isDueToday: item.isDueToday,
+    isDueSoon: item.isDueSoon,
+    deadlineState: item.deadlineState,
+    isStale: item.isStale,
+    lastActivityAt: item.lastActivityAt.toISOString(),
+    daysSinceActivity: item.daysSinceActivity,
+    sourceMeetingId: item.sourceMeetingId,
+    sourceMeetingTitle: item.sourceMeetingTitle,
+    sourceActionItemId: item.sourceActionItemId,
+    sourceActionItemTitle: item.sourceActionItemTitle,
+    createdAt: item.createdAt.toISOString(),
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
 async function fetchInitialTaskTree(
-  slug: string,
-  projectId: string,
+  organizationId: ObjectId,
+  projectId: ObjectId,
   requestHeaders: Headers,
 ): Promise<TaskWithSubtasks[]> {
-  const host =
-    requestHeaders.get("x-forwarded-host") ??
-    requestHeaders.get("host") ??
-    "localhost:3000";
-  const protocol =
-    requestHeaders.get("x-forwarded-proto") ??
-    (host.startsWith("localhost") || host.startsWith("127.0.0.1")
-      ? "http"
-      : "https");
-  const cookie = requestHeaders.get("cookie") ?? "";
-  const baseUrl = `${protocol}://${host}/api/organizations/${encodeURIComponent(slug)}/projects/${encodeURIComponent(projectId)}/tasks`;
+  try {
+    const topLevelResult = await queryProjectTasks(
+      organizationId,
+      projectId,
+      undefined,
+      requestHeaders,
+    );
+    const topLevelTasks = topLevelResult.tasks.map(serializeTaskSummary);
 
-  const response = await fetch(baseUrl, {
-    headers: cookie ? { cookie } : undefined,
-    cache: "no-store",
-  });
-
-  if (response.status === 401) {
-    redirect("/login");
-  }
-  if (!response.ok) {
+    return await Promise.all(
+      topLevelTasks.map(async (parentTask) => {
+        try {
+          const subResult = await queryProjectTasks(
+            organizationId,
+            projectId,
+            { parentTaskId: parentTask.id },
+            requestHeaders,
+          );
+          return {
+            ...parentTask,
+            subtasks: subResult.tasks.map(serializeTaskSummary),
+          };
+        } catch {
+          return { ...parentTask, subtasks: [] };
+        }
+      }),
+    );
+  } catch (error) {
+    if (
+      error instanceof TenantAccessError &&
+      error.message === "Authentication required."
+    ) {
+      redirect("/login");
+    }
     return [];
   }
-
-  const data = (await response.json()) as { tasks?: TaskSummary[] };
-  const topLevelTasks = Array.isArray(data.tasks) ? data.tasks : [];
-
-  return Promise.all(
-    topLevelTasks.map(async (parentTask) => {
-      const subRes = await fetch(
-        `${baseUrl}?parentTaskId=${encodeURIComponent(parentTask.id)}`,
-        {
-          headers: cookie ? { cookie } : undefined,
-          cache: "no-store",
-        },
-      );
-      if (!subRes.ok) {
-        return { ...parentTask, subtasks: [] };
-      }
-      const subData = (await subRes.json()) as { tasks?: TaskSummary[] };
-      return {
-        ...parentTask,
-        subtasks: Array.isArray(subData.tasks) ? subData.tasks : [],
-      };
-    }),
-  );
 }
 
 async function ProjectTasksWorkspace({
@@ -92,6 +137,7 @@ async function ProjectTasksWorkspace({
 }: {
   params: Promise<{ slug: string; projectId: string }>;
 }) {
+  await connection();
   const { slug, projectId } = await params;
   const requestHeaders = await headers();
   const session = await getAuth().api.getSession({ headers: requestHeaders });
@@ -154,7 +200,7 @@ async function ProjectTasksWorkspace({
   const projectHexId = project._id.toHexString();
   const [members, initialTasks] = await Promise.all([
     listOrganizationMembers(organization._id, requestHeaders),
-    fetchInitialTaskTree(organization.slug, projectHexId, requestHeaders),
+    fetchInitialTaskTree(organization._id, project._id, requestHeaders),
   ]);
 
   const isArchived = project.status === "archived";
@@ -221,6 +267,7 @@ async function ProjectTasksWorkspace({
       </header>
 
       <TasksClient
+        key={`${organization.slug}:${projectHexId}:${session.user.id}:${organization.role}`}
         organizationSlug={organization.slug}
         projectId={projectHexId}
         projectStatus={project.status}

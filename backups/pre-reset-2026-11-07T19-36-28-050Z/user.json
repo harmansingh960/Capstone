@@ -1,0 +1,29 @@
+[
+  {
+    "_id": "6aee0aa492c5606e6aefb665",
+    "name": "Harman Singh",
+    "email": "harmansadiwal07@gmail.com",
+    "emailVerified": false,
+    "createdAt": "2026-11-06T17:13:08.144Z",
+    "updatedAt": "2026-11-06T23:34:00.075Z",
+    "platformRole": "platform_admin"
+  },
+  {
+    "_id": "6aee649de2c6279a8032a6b5",
+    "name": "Harry",
+    "email": "harmansadiwal06@gmail.com",
+    "emailVerified": false,
+    "createdAt": "2026-11-06T23:37:01.705Z",
+    "updatedAt": "2026-11-06T23:37:01.705Z",
+    "platformRole": null
+  },
+  {
+    "_id": "6aef1e52395ac584f9382253",
+    "name": "john",
+    "email": "john@john.com",
+    "emailVerified": false,
+    "createdAt": "2026-11-07T12:49:22.760Z",
+    "updatedAt": "2026-11-07T12:49:22.760Z",
+    "platformRole": null
+  }
+]

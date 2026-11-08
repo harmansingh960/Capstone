@@ -1,0 +1,34 @@
+[
+  {
+    "_id": "6aeee31b395ac584f938224f",
+    "organizationId": "6aee6438e2c6279a8032a6b3",
+    "recipientId": "6aee0aa492c5606e6aefb665",
+    "type": "task.updated",
+    "title": "Task updated: frist draf",
+    "message": "Task \"frist draf\" was updated: status changed to In progress.",
+    "url": "/dashboard/team-db/projects/6aeebab24a25a739098e5743#task-6aeebae84a25a739098e5745",
+    "entityType": "task",
+    "entityId": "6aeebae84a25a739098e5745",
+    "projectId": "6aeebab24a25a739098e5743",
+    "actorId": "6aee649de2c6279a8032a6b5",
+    "dedupeKey": "task.updated:6aeebae84a25a739098e5745:1794040603309",
+    "createdAt": "2026-11-07T08:36:43.929Z",
+    "readAt": "2026-11-07T08:37:37.094Z"
+  },
+  {
+    "_id": "6aef4ad8395ac584f9382292",
+    "organizationId": "6aee6438e2c6279a8032a6b3",
+    "recipientId": "6aef1e52395ac584f9382253",
+    "type": "task.assigned",
+    "title": "Task assigned: frist draf",
+    "message": "You were assigned to \"frist draf\" in project \"orpind\".",
+    "url": "/dashboard/team-db/projects/6aeebab24a25a739098e5743#task-6aeebae84a25a739098e5745",
+    "entityType": "task",
+    "entityId": "6aeebae84a25a739098e5745",
+    "projectId": "6aeebab24a25a739098e5743",
+    "actorId": "6aee0aa492c5606e6aefb665",
+    "dedupeKey": "task.assigned:6aeebae84a25a739098e5745:6aef1e52395ac584f9382253:1794067160117",
+    "createdAt": "2026-11-07T15:59:20.798Z",
+    "readAt": "2026-11-07T16:04:35.738Z"
+  }
+]

@@ -77,6 +77,16 @@ function createAuth() {
     },
     database: mongodbAdapter(client.db(getDbName()), { client }),
     emailAndPassword: { enabled: true },
+    user: {
+      additionalFields: {
+        platformRole: {
+          type: "string",
+          required: false,
+          defaultValue: null,
+          input: false, // Prevents client from setting or modifying this during signup or user update
+        },
+      },
+    },
   });
 }
 

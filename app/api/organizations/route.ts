@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import {
   createOrganization,
   listUserOrganizations,
-  requireSessionUserId,
+  requirePlatformAdmin,
   TenantAccessError,
   TenantValidationError,
   type UserOrganization,
@@ -38,7 +38,8 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     if (error instanceof TenantAccessError) {
-      return Response.json({ error: "Authentication required." }, { status: 401 });
+      const status = error.message === "Authentication required." ? 401 : 403;
+      return Response.json({ error: error.message }, { status });
     }
     return Response.json(
       { error: "Failed to load organizations." },
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   await connection();
   try {
-    const userId = await requireSessionUserId(request.headers);
+    const userId = await requirePlatformAdmin(request.headers);
     const rateLimitError = await enforceRateLimit(
       request,
       "org_create",
@@ -124,7 +125,8 @@ export async function POST(request: Request) {
       return Response.json({ error: error.message }, { status });
     }
     if (error instanceof TenantAccessError) {
-      return Response.json({ error: "Authentication required." }, { status: 401 });
+      const status = error.message === "Authentication required." ? 401 : 403;
+      return Response.json({ error: error.message }, { status });
     }
     return Response.json(
       { error: "Failed to create organization." },

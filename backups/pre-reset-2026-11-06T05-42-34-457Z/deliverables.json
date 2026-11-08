@@ -1,0 +1,572 @@
+[
+  {
+    "_id": "6ae629d9fd519105c0b5ce63",
+    "organizationId": "6ae629c7fd519105c0b5ce5c",
+    "projectId": "6ae629c9fd519105c0b5ce60",
+    "taskId": "6ae629cdfd519105c0b5ce61",
+    "submittedBy": "6ae629c6fd519105c0b5ce56",
+    "description": "Initial deliverable v1",
+    "url": "https://example.com/deliverable-v1",
+    "createdAt": "2026-10-31T17:48:09.480Z"
+  },
+  {
+    "_id": "6ae62a07fd519105c0b5ce68",
+    "organizationId": "6ae629c7fd519105c0b5ce5c",
+    "projectId": "6ae629c9fd519105c0b5ce60",
+    "taskId": "6ae629cdfd519105c0b5ce61",
+    "submittedBy": "6ae629c6fd519105c0b5ce56",
+    "description": "Deliverable v2 superseding v1",
+    "url": "https://example.com/v2",
+    "createdAt": "2026-10-31T17:48:55.267Z"
+  },
+  {
+    "_id": "6ae62a7bfd519105c0b5ce76",
+    "organizationId": "6ae62a64fd519105c0b5ce6e",
+    "projectId": "6ae62a66fd519105c0b5ce71",
+    "taskId": "6ae62a6cfd519105c0b5ce74",
+    "submittedBy": "6ae629c6fd519105c0b5ce56",
+    "description": "Initial deliverable v1",
+    "url": "https://example.com/deliverable-v1",
+    "createdAt": "2026-10-31T17:50:51.577Z"
+  },
+  {
+    "_id": "6ae62a96fd519105c0b5ce79",
+    "organizationId": "6ae62a64fd519105c0b5ce6e",
+    "projectId": "6ae62a66fd519105c0b5ce71",
+    "taskId": "6ae62a6cfd519105c0b5ce74",
+    "submittedBy": "6ae629c6fd519105c0b5ce56",
+    "description": "Deliverable v2 superseding v1",
+    "url": "https://example.com/v2",
+    "createdAt": "2026-10-31T17:51:18.819Z"
+  },
+  {
+    "_id": "6ae72a12fd519105c0b5ce88",
+    "organizationId": "6ae729f6fd519105c0b5ce80",
+    "projectId": "6ae72a04fd519105c0b5ce84",
+    "taskId": "6ae72a05fd519105c0b5ce86",
+    "submittedBy": "6ae729f5fd519105c0b5ce7d",
+    "description": "Member deliverable submission v1",
+    "url": "https://example.com/member-deliverable-v1",
+    "createdAt": "2026-11-01T12:01:22.375Z"
+  },
+  {
+    "_id": "6ae89f092c38c6f2fed96af8",
+    "organizationId": "6ae89eb52c38c6f2fed96ae2",
+    "projectId": "6ae89ebb2c38c6f2fed96ae6",
+    "taskId": "6ae89ec42c38c6f2fed96aec",
+    "submittedBy": "6ae89eb32c38c6f2fed96adc",
+    "description": "Deliverable for Task A completion",
+    "url": null,
+    "createdAt": "2026-11-02T14:32:41.090Z"
+  },
+  {
+    "_id": "6ae89f7a2c38c6f2fed96afa",
+    "organizationId": "6ae89eb52c38c6f2fed96ae2",
+    "projectId": "6ae89ebb2c38c6f2fed96ae6",
+    "taskId": "6ae89ec42c38c6f2fed96aec",
+    "submittedBy": "6ae89eb32c38c6f2fed96adc",
+    "description": "New unreviewed deliverable",
+    "url": null,
+    "createdAt": "2026-11-02T14:34:34.903Z"
+  },
+  {
+    "_id": "6ae89fab2c38c6f2fed96afd",
+    "organizationId": "6ae89eb52c38c6f2fed96ae2",
+    "projectId": "6ae89ebb2c38c6f2fed96ae6",
+    "taskId": "6ae89ec52c38c6f2fed96aed",
+    "submittedBy": "6ae89eb32c38c6f2fed96adc",
+    "description": "Deliverable for Task B",
+    "url": null,
+    "createdAt": "2026-11-02T14:35:23.506Z"
+  },
+  {
+    "_id": "6ae8a0682c38c6f2fed96b1f",
+    "organizationId": "6ae8a01e2c38c6f2fed96b09",
+    "projectId": "6ae8a0252c38c6f2fed96b0d",
+    "taskId": "6ae8a02f2c38c6f2fed96b13",
+    "submittedBy": "6ae8a01c2c38c6f2fed96b00",
+    "description": "Deliverable for Task A completion",
+    "url": null,
+    "createdAt": "2026-11-02T14:38:32.083Z"
+  },
+  {
+    "_id": "6ae8a09c2c38c6f2fed96b21",
+    "organizationId": "6ae8a01e2c38c6f2fed96b09",
+    "projectId": "6ae8a0252c38c6f2fed96b0d",
+    "taskId": "6ae8a02f2c38c6f2fed96b13",
+    "submittedBy": "6ae8a01c2c38c6f2fed96b00",
+    "description": "New unreviewed deliverable",
+    "url": null,
+    "createdAt": "2026-11-02T14:39:24.641Z"
+  },
+  {
+    "_id": "6ae8a0b52c38c6f2fed96b24",
+    "organizationId": "6ae8a01e2c38c6f2fed96b09",
+    "projectId": "6ae8a0252c38c6f2fed96b0d",
+    "taskId": "6ae8a0312c38c6f2fed96b14",
+    "submittedBy": "6ae8a01c2c38c6f2fed96b00",
+    "description": "Deliverable for Task B",
+    "url": null,
+    "createdAt": "2026-11-02T14:39:49.684Z"
+  },
+  {
+    "_id": "6ae8b2f92c38c6f2fed96b36",
+    "organizationId": "6ae8b2f32c38c6f2fed96b30",
+    "projectId": "6ae8b2f62c38c6f2fed96b34",
+    "taskId": "6ae8b2f72c38c6f2fed96b35",
+    "submittedBy": "6ae8b2f22c38c6f2fed96b2d",
+    "description": "First Deliverable Submission",
+    "url": null,
+    "createdAt": "2026-11-02T15:57:45.155Z"
+  },
+  {
+    "_id": "6ae8b3072c38c6f2fed96b38",
+    "organizationId": "6ae8b2f32c38c6f2fed96b30",
+    "projectId": "6ae8b2f62c38c6f2fed96b34",
+    "taskId": "6ae8b2f72c38c6f2fed96b35",
+    "submittedBy": "6ae8b2f22c38c6f2fed96b2d",
+    "description": "Second Deliverable Submission (Revising work)",
+    "url": null,
+    "createdAt": "2026-11-02T15:57:59.782Z"
+  },
+  {
+    "_id": "6ae8b4292c38c6f2fed96b4f",
+    "organizationId": "6ae8b4212c38c6f2fed96b49",
+    "projectId": "6ae8b4262c38c6f2fed96b4d",
+    "taskId": "6ae8b4282c38c6f2fed96b4e",
+    "submittedBy": "6ae8b4212c38c6f2fed96b40",
+    "description": "First Deliverable Submission",
+    "url": null,
+    "createdAt": "2026-11-02T16:02:49.880Z"
+  },
+  {
+    "_id": "6ae8b4342c38c6f2fed96b51",
+    "organizationId": "6ae8b4212c38c6f2fed96b49",
+    "projectId": "6ae8b4262c38c6f2fed96b4d",
+    "taskId": "6ae8b4282c38c6f2fed96b4e",
+    "submittedBy": "6ae8b4212c38c6f2fed96b40",
+    "description": "Second Deliverable Submission (Revising work)",
+    "url": null,
+    "createdAt": "2026-11-02T16:03:00.595Z"
+  },
+  {
+    "_id": "6ae8b7862c38c6f2fed96b62",
+    "organizationId": "6ae8b7802c38c6f2fed96b5c",
+    "projectId": "6ae8b7832c38c6f2fed96b60",
+    "taskId": "6ae8b7842c38c6f2fed96b61",
+    "submittedBy": "6ae8b77f2c38c6f2fed96b54",
+    "description": "Initial deliverable draft for Review Feedback task",
+    "url": null,
+    "createdAt": "2026-11-02T16:17:10.362Z"
+  },
+  {
+    "_id": "6ae8b78e2c38c6f2fed96b65",
+    "organizationId": "6ae8b7802c38c6f2fed96b5c",
+    "projectId": "6ae8b7832c38c6f2fed96b60",
+    "taskId": "6ae8b78c2c38c6f2fed96b64",
+    "submittedBy": "6ae8b77f2c38c6f2fed96b54",
+    "description": "Deliverable for optional comment verification",
+    "url": null,
+    "createdAt": "2026-11-02T16:17:18.131Z"
+  },
+  {
+    "_id": "6ae8b79a2c38c6f2fed96b67",
+    "organizationId": "6ae8b7802c38c6f2fed96b5c",
+    "projectId": "6ae8b7832c38c6f2fed96b60",
+    "taskId": "6ae8b7842c38c6f2fed96b61",
+    "submittedBy": "6ae8b77f2c38c6f2fed96b54",
+    "description": "Second revised deliverable addressing manager feedback with test docs",
+    "url": null,
+    "createdAt": "2026-11-02T16:17:30.364Z"
+  },
+  {
+    "_id": "6ae8bb332c38c6f2fed96b7a",
+    "organizationId": "6ae8bb202c38c6f2fed96b72",
+    "projectId": "6ae8bb242c38c6f2fed96b76",
+    "taskId": "6ae8bb252c38c6f2fed96b77",
+    "submittedBy": "6ae8bb1f2c38c6f2fed96b69",
+    "description": "Submission 1 for Task A",
+    "url": null,
+    "createdAt": "2026-11-02T16:32:51.758Z"
+  },
+  {
+    "_id": "6ae8bb4c2c38c6f2fed96b7c",
+    "organizationId": "6ae8bb202c38c6f2fed96b72",
+    "projectId": "6ae8bb242c38c6f2fed96b76",
+    "taskId": "6ae8bb252c38c6f2fed96b77",
+    "submittedBy": "6ae8bb1f2c38c6f2fed96b69",
+    "description": "Submission 2 for Task A (Revised as requested)",
+    "url": null,
+    "createdAt": "2026-11-02T16:33:16.089Z"
+  },
+  {
+    "_id": "6ae8bb632c38c6f2fed96b7e",
+    "organizationId": "6ae8bb202c38c6f2fed96b72",
+    "projectId": "6ae8bb242c38c6f2fed96b76",
+    "taskId": "6ae8bb252c38c6f2fed96b77",
+    "submittedBy": "6ae8bb1f2c38c6f2fed96b69",
+    "description": "Submission 3 for Task A (Submitting further update)",
+    "url": null,
+    "createdAt": "2026-11-02T16:33:39.638Z"
+  },
+  {
+    "_id": "6ae8bb6b2c38c6f2fed96b7f",
+    "organizationId": "6ae8bb202c38c6f2fed96b72",
+    "projectId": "6ae8bb242c38c6f2fed96b76",
+    "taskId": "6ae8bb292c38c6f2fed96b79",
+    "submittedBy": "6ae8bb1f2c38c6f2fed96b69",
+    "description": "Subtask A1 Deliverable",
+    "url": null,
+    "createdAt": "2026-11-02T16:33:47.134Z"
+  },
+  {
+    "_id": "6ae8bf562c38c6f2fed96ba8",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "projectId": "6ae8bf522c38c6f2fed96ba3",
+    "taskId": "6ae8bf542c38c6f2fed96ba7",
+    "submittedBy": "6ae8bf4e2c38c6f2fed96b94",
+    "description": "Initial deliverable for Task 1",
+    "url": "https://example.com/deliv1",
+    "createdAt": "2026-11-02T16:50:30.633Z"
+  },
+  {
+    "_id": "6ae8bf682c38c6f2fed96bac",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "projectId": "6ae8bf522c38c6f2fed96ba3",
+    "taskId": "6ae8bf662c38c6f2fed96bab",
+    "submittedBy": "6ae8bf4e2c38c6f2fed96b94",
+    "description": "Deliverable version 1 (D1)",
+    "url": null,
+    "createdAt": "2026-11-02T16:50:48.147Z"
+  },
+  {
+    "_id": "6ae8bf6a2c38c6f2fed96bae",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "projectId": "6ae8bf522c38c6f2fed96ba3",
+    "taskId": "6ae8bf662c38c6f2fed96bab",
+    "submittedBy": "6ae8bf4e2c38c6f2fed96b94",
+    "description": "Deliverable version 2 (D2)",
+    "url": null,
+    "createdAt": "2026-11-02T16:50:50.460Z"
+  },
+  {
+    "_id": "6ae8bf6d2c38c6f2fed96bb1",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "projectId": "6ae8bf522c38c6f2fed96ba3",
+    "taskId": "6ae8bf662c38c6f2fed96bab",
+    "submittedBy": "6ae8bf4e2c38c6f2fed96b94",
+    "description": "Deliverable version 3 (D3)",
+    "url": null,
+    "createdAt": "2026-11-02T16:50:53.943Z"
+  },
+  {
+    "_id": "6ae8bf7b2c38c6f2fed96bb4",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "projectId": "6ae8bf522c38c6f2fed96ba3",
+    "taskId": "6ae8bf7a2c38c6f2fed96bb3",
+    "submittedBy": "6ae8bf4e2c38c6f2fed96b94",
+    "description": "Submission awaiting revision",
+    "url": "https://example.com/draft-spec",
+    "createdAt": "2026-11-02T16:51:07.704Z"
+  },
+  {
+    "_id": "6ae8bfa82c38c6f2fed96bb9",
+    "organizationId": "6ae8bf4e2c38c6f2fed96b9f",
+    "projectId": "6ae8bf522c38c6f2fed96ba3",
+    "taskId": "6ae8bfa42c38c6f2fed96bb8",
+    "submittedBy": "6ae8bf4e2c38c6f2fed96b94",
+    "description": "Deliverable for Task 4 gate",
+    "url": null,
+    "createdAt": "2026-11-02T16:51:52.759Z"
+  },
+  {
+    "_id": "6ae8c0372c38c6f2fed96bd1",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "projectId": "6ae8c0312c38c6f2fed96bcc",
+    "taskId": "6ae8c0342c38c6f2fed96bd0",
+    "submittedBy": "6ae8c02d2c38c6f2fed96bbd",
+    "description": "Initial deliverable for Task 1",
+    "url": "https://example.com/deliv1",
+    "createdAt": "2026-11-02T16:54:15.405Z"
+  },
+  {
+    "_id": "6ae8c0482c38c6f2fed96bd5",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "projectId": "6ae8c0312c38c6f2fed96bcc",
+    "taskId": "6ae8c0462c38c6f2fed96bd4",
+    "submittedBy": "6ae8c02d2c38c6f2fed96bbd",
+    "description": "Deliverable version 1 (D1)",
+    "url": null,
+    "createdAt": "2026-11-02T16:54:32.369Z"
+  },
+  {
+    "_id": "6ae8c04a2c38c6f2fed96bd7",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "projectId": "6ae8c0312c38c6f2fed96bcc",
+    "taskId": "6ae8c0462c38c6f2fed96bd4",
+    "submittedBy": "6ae8c02d2c38c6f2fed96bbd",
+    "description": "Deliverable version 2 (D2)",
+    "url": null,
+    "createdAt": "2026-11-02T16:54:34.700Z"
+  },
+  {
+    "_id": "6ae8c04e2c38c6f2fed96bda",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "projectId": "6ae8c0312c38c6f2fed96bcc",
+    "taskId": "6ae8c0462c38c6f2fed96bd4",
+    "submittedBy": "6ae8c02d2c38c6f2fed96bbd",
+    "description": "Deliverable version 3 (D3)",
+    "url": null,
+    "createdAt": "2026-11-02T16:54:38.134Z"
+  },
+  {
+    "_id": "6ae8c05a2c38c6f2fed96bdd",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "projectId": "6ae8c0312c38c6f2fed96bcc",
+    "taskId": "6ae8c0582c38c6f2fed96bdc",
+    "submittedBy": "6ae8c02d2c38c6f2fed96bbd",
+    "description": "Submission awaiting revision",
+    "url": "https://example.com/draft-spec",
+    "createdAt": "2026-11-02T16:54:50.122Z"
+  },
+  {
+    "_id": "6ae8c07c2c38c6f2fed96be3",
+    "organizationId": "6ae8c02e2c38c6f2fed96bc8",
+    "projectId": "6ae8c0312c38c6f2fed96bcc",
+    "taskId": "6ae8c0782c38c6f2fed96be2",
+    "submittedBy": "6ae8c02d2c38c6f2fed96bbd",
+    "description": "Deliverable for Task 4 gate",
+    "url": null,
+    "createdAt": "2026-11-02T16:55:24.526Z"
+  },
+  {
+    "_id": "6ae8c8af2c38c6f2fed96bf6",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8ad2c38c6f2fed96bf5",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be8",
+    "description": "Deliverable for Task 2 awaiting review",
+    "url": null,
+    "createdAt": "2026-11-02T17:30:23.550Z"
+  },
+  {
+    "_id": "6ae8c8b22c38c6f2fed96bf8",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8b02c38c6f2fed96bf7",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be6",
+    "description": "Deliverable for Task 3 to be revised",
+    "url": null,
+    "createdAt": "2026-11-02T17:30:26.400Z"
+  },
+  {
+    "_id": "6ae8c8b72c38c6f2fed96bfb",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8b52c38c6f2fed96bfa",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be8",
+    "description": "Deliverable for Task 4 ready for approval",
+    "url": null,
+    "createdAt": "2026-11-02T17:30:31.580Z"
+  },
+  {
+    "_id": "6ae8c8be2c38c6f2fed96c00",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8bd2c38c6f2fed96bff",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be8",
+    "description": "Deliverable for subtask 6.1 awaiting review",
+    "url": null,
+    "createdAt": "2026-11-02T17:30:38.896Z"
+  },
+  {
+    "_id": "6ae8c8c12c38c6f2fed96c02",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8c02c38c6f2fed96c01",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be8",
+    "description": "D1 earlier submission",
+    "url": null,
+    "createdAt": "2026-11-02T17:30:41.675Z"
+  },
+  {
+    "_id": "6ae8c8c32c38c6f2fed96c04",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8c02c38c6f2fed96c01",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be8",
+    "description": "D2 revised submission (supersedes D1)",
+    "url": null,
+    "createdAt": "2026-11-02T17:30:43.928Z"
+  },
+  {
+    "_id": "6ae8c8de2c38c6f2fed96c07",
+    "organizationId": "6ae8c8a72c38c6f2fed96bef",
+    "projectId": "6ae8c8aa2c38c6f2fed96bf3",
+    "taskId": "6ae8c8ab2c38c6f2fed96bf4",
+    "submittedBy": "6ae8c8a62c38c6f2fed96be8",
+    "description": "Deliverable for Task 1 newly submitted",
+    "url": null,
+    "createdAt": "2026-11-02T17:31:10.122Z"
+  },
+  {
+    "_id": "6ae8ce162c38c6f2fed96c18",
+    "organizationId": "6ae8ce102c38c6f2fed96c12",
+    "projectId": "6ae8ce132c38c6f2fed96c16",
+    "taskId": "6ae8ce142c38c6f2fed96c17",
+    "submittedBy": "6ae8ce102c38c6f2fed96c09",
+    "description": "Submission 1: initial architecture draft",
+    "url": null,
+    "createdAt": "2026-11-02T17:53:26.570Z"
+  },
+  {
+    "_id": "6ae8ce212c38c6f2fed96c1a",
+    "organizationId": "6ae8ce102c38c6f2fed96c12",
+    "projectId": "6ae8ce132c38c6f2fed96c16",
+    "taskId": "6ae8ce142c38c6f2fed96c17",
+    "submittedBy": "6ae8ce102c38c6f2fed96c09",
+    "description": "Submission 2: added sequence diagram and error codes",
+    "url": null,
+    "createdAt": "2026-11-02T17:53:37.097Z"
+  },
+  {
+    "_id": "6ae8ce282c38c6f2fed96c1c",
+    "organizationId": "6ae8ce102c38c6f2fed96c12",
+    "projectId": "6ae8ce132c38c6f2fed96c16",
+    "taskId": "6ae8ce142c38c6f2fed96c17",
+    "submittedBy": "6ae8ce102c38c6f2fed96c09",
+    "description": "Submission 3: fixed retry limit in sequence diagram",
+    "url": null,
+    "createdAt": "2026-11-02T17:53:44.873Z"
+  },
+  {
+    "_id": "6ae8ce312c38c6f2fed96c1e",
+    "organizationId": "6ae8ce102c38c6f2fed96c12",
+    "projectId": "6ae8ce132c38c6f2fed96c16",
+    "taskId": "6ae8ce2f2c38c6f2fed96c1d",
+    "submittedBy": "6ae8ce102c38c6f2fed96c09",
+    "description": "Task B Initial Submission",
+    "url": null,
+    "createdAt": "2026-11-02T17:53:53.031Z"
+  },
+  {
+    "_id": "6ae8ce332c38c6f2fed96c20",
+    "organizationId": "6ae8ce102c38c6f2fed96c12",
+    "projectId": "6ae8ce132c38c6f2fed96c16",
+    "taskId": "6ae8ce2f2c38c6f2fed96c1d",
+    "submittedBy": "6ae8ce102c38c6f2fed96c09",
+    "description": "Task B Second Submission (not addressing changes)",
+    "url": null,
+    "createdAt": "2026-11-02T17:53:55.118Z"
+  },
+  {
+    "_id": "6ae8d4f32c38c6f2fed96c31",
+    "organizationId": "6ae8d4ee2c38c6f2fed96c2b",
+    "projectId": "6ae8d4f02c38c6f2fed96c2f",
+    "taskId": "6ae8d4f12c38c6f2fed96c30",
+    "submittedBy": "6ae8d4ed2c38c6f2fed96c23",
+    "description": "Task 1 Submission 1 by Member",
+    "url": null,
+    "createdAt": "2026-11-02T18:22:43.400Z"
+  },
+  {
+    "_id": "6ae8d4f92c38c6f2fed96c36",
+    "organizationId": "6ae8d4ee2c38c6f2fed96c2b",
+    "projectId": "6ae8d4f02c38c6f2fed96c2f",
+    "taskId": "6ae8d4f72c38c6f2fed96c35",
+    "submittedBy": "6ae8d4ed2c38c6f2fed96c22",
+    "description": "Task 2 Submission 1 by Manager",
+    "url": null,
+    "createdAt": "2026-11-02T18:22:49.063Z"
+  },
+  {
+    "_id": "6ae8d50b2c38c6f2fed96c39",
+    "organizationId": "6ae8d4ee2c38c6f2fed96c2b",
+    "projectId": "6ae8d4f02c38c6f2fed96c2f",
+    "taskId": "6ae8d4f12c38c6f2fed96c30",
+    "submittedBy": "6ae8d4ed2c38c6f2fed96c23",
+    "description": "Task 1 Submission 2 by Member (Revision)",
+    "url": null,
+    "createdAt": "2026-11-02T18:23:07.872Z"
+  },
+  {
+    "_id": "6ae8d53f2c38c6f2fed96c4b",
+    "organizationId": "6ae8d5392c38c6f2fed96c45",
+    "projectId": "6ae8d53c2c38c6f2fed96c49",
+    "taskId": "6ae8d53d2c38c6f2fed96c4a",
+    "submittedBy": "6ae8d5392c38c6f2fed96c3d",
+    "description": "Task 1 Submission 1 by Member",
+    "url": null,
+    "createdAt": "2026-11-02T18:23:59.373Z"
+  },
+  {
+    "_id": "6ae8d5452c38c6f2fed96c50",
+    "organizationId": "6ae8d5392c38c6f2fed96c45",
+    "projectId": "6ae8d53c2c38c6f2fed96c49",
+    "taskId": "6ae8d5432c38c6f2fed96c4f",
+    "submittedBy": "6ae8d5392c38c6f2fed96c3c",
+    "description": "Task 2 Submission 1 by Manager",
+    "url": null,
+    "createdAt": "2026-11-02T18:24:05.102Z"
+  },
+  {
+    "_id": "6ae8d5582c38c6f2fed96c53",
+    "organizationId": "6ae8d5392c38c6f2fed96c45",
+    "projectId": "6ae8d53c2c38c6f2fed96c49",
+    "taskId": "6ae8d53d2c38c6f2fed96c4a",
+    "submittedBy": "6ae8d5392c38c6f2fed96c3d",
+    "description": "Task 1 Submission 2 by Member (Revision)",
+    "url": null,
+    "createdAt": "2026-11-02T18:24:24.126Z"
+  },
+  {
+    "_id": "6ae8d5942c38c6f2fed96c65",
+    "organizationId": "6ae8d58f2c38c6f2fed96c5f",
+    "projectId": "6ae8d5922c38c6f2fed96c63",
+    "taskId": "6ae8d5932c38c6f2fed96c64",
+    "submittedBy": "6ae8d58e2c38c6f2fed96c57",
+    "description": "Task 1 Submission 1 by Member",
+    "url": null,
+    "createdAt": "2026-11-02T18:25:24.710Z"
+  },
+  {
+    "_id": "6ae8d59a2c38c6f2fed96c6a",
+    "organizationId": "6ae8d58f2c38c6f2fed96c5f",
+    "projectId": "6ae8d5922c38c6f2fed96c63",
+    "taskId": "6ae8d5992c38c6f2fed96c69",
+    "submittedBy": "6ae8d58e2c38c6f2fed96c58",
+    "description": "Task 2 Submission 1 by Manager",
+    "url": null,
+    "createdAt": "2026-11-02T18:25:30.509Z"
+  },
+  {
+    "_id": "6ae8d5ac2c38c6f2fed96c6d",
+    "organizationId": "6ae8d58f2c38c6f2fed96c5f",
+    "projectId": "6ae8d5922c38c6f2fed96c63",
+    "taskId": "6ae8d5932c38c6f2fed96c64",
+    "submittedBy": "6ae8d58e2c38c6f2fed96c57",
+    "description": "Task 1 Submission 2 by Member (Revision)",
+    "url": null,
+    "createdAt": "2026-11-02T18:25:48.364Z"
+  },
+  {
+    "_id": "6ae8e2e72c38c6f2fed96c9b",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "submittedBy": "6ae8e2b52c38c6f2fed96c73",
+    "description": "Initial deliverable submission with architecture diagrams.",
+    "url": "https://example.com/spec-v1.pdf",
+    "createdAt": "2026-11-02T19:22:15.253Z"
+  },
+  {
+    "_id": "6ae8e2ec2c38c6f2fed96ca1",
+    "organizationId": "6ae8e2b62c38c6f2fed96c7c",
+    "projectId": "6ae8e2bb2c38c6f2fed96c84",
+    "taskId": "6ae8e2c12c38c6f2fed96c8a",
+    "submittedBy": "6ae8e2b52c38c6f2fed96c73",
+    "description": "Revised deliverable #2 addressing error recovery.",
+    "url": null,
+    "createdAt": "2026-11-02T19:22:20.400Z"
+  }
+]
