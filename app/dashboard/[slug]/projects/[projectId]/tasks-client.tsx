@@ -398,6 +398,8 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   done: "Done",
 };
 
+const TASKS_PER_PAGE = 10;
+
 const PRIORITY_LABELS: Record<TaskPriority, string> = {
   low: "Low",
   medium: "Medium",
@@ -2783,9 +2785,11 @@ export function TasksClient({
   const [tasks, setTasks] = useState<TaskWithSubtasks[]>(initialTasks);
   const [prevInitialTasks, setPrevInitialTasks] =
     useState<TaskWithSubtasks[]>(initialTasks);
+  const [currentPage, setCurrentPage] = useState(1);
   if (initialTasks !== prevInitialTasks) {
     setPrevInitialTasks(initialTasks);
     setTasks(initialTasks);
+    setCurrentPage(1);
   }
 
   const [orgMembers, setOrgMembers] = useState<MemberOption[]>(members);
@@ -2818,6 +2822,13 @@ export function TasksClient({
   const [sortOrderFilter, setSortOrderFilter] = useState<"asc" | "desc">("asc");
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+
+  const filterKey = `${statusFilter}|${assigneeFilter}|${deliverableStatusFilter}|${priorityFilter}|${overdueFilter}|${staleFilter}|${blockedFilter}|${deadlineFromFilter}|${deadlineToFilter}|${sortByFilter}|${sortOrderFilter}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setCurrentPage(1);
+  }
 
   // Top-level task creation state (admin / manager)
   const [createTitle, setCreateTitle] = useState("");
@@ -4096,16 +4107,22 @@ export function TasksClient({
           task={task}
           currentUserId={currentUserId}
           members={orgMembers}
-          seededActivities={
-            canViewProjectActivity
-              ? projectActivities.filter((item) => item.taskId === task.id)
-              : []
-          }
-          parentLoading={canViewProjectActivity ? projectActivityLoading : false}
+          seededActivities={[]}
+          parentLoading={false}
         />
       </div>
     );
   }
+
+  const totalTasks = tasks.length;
+  const totalPages = Math.max(1, Math.ceil(totalTasks / TASKS_PER_PAGE));
+  const activePage = Math.min(Math.max(1, currentPage), totalPages);
+  if (currentPage > totalPages) {
+    setCurrentPage(totalPages);
+  }
+  const startIndex = (activePage - 1) * TASKS_PER_PAGE;
+  const endIndex = Math.min(startIndex + TASKS_PER_PAGE, totalTasks);
+  const paginatedTasks = tasks.slice(startIndex, endIndex);
 
   return (
     <div className="flex flex-col gap-6">
@@ -4469,7 +4486,7 @@ export function TasksClient({
           </div>
         ) : (
           <ul className="flex flex-col gap-3">
-            {tasks.map((task) => {
+            {paginatedTasks.map((task) => {
               const isEditing = editingTaskId === task.id;
               const isAddingSubtask = canManage && subtaskParentId === task.id;
 
@@ -4669,6 +4686,39 @@ export function TasksClient({
               );
             })}
           </ul>
+        )}
+
+        {!listLoading && (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-500">
+            <span>
+              {totalTasks === 0
+                ? "Showing 0 tasks"
+                : `Showing ${startIndex + 1}–${endIndex} of ${totalTasks} tasks`}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={activePage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="rounded border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                Previous
+              </button>
+              <span>
+                Page {activePage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={activePage >= totalPages}
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                className="rounded border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         )}
       </section>
 

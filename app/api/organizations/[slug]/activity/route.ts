@@ -71,7 +71,7 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
-    if (organization.role === "member") {
+    if (organization.role !== "admin") {
       return Response.json({ error: "Access denied." }, { status: 403 });
     }
     const rawLimit = searchParams.get("limit");

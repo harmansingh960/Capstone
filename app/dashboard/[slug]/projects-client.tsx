@@ -141,7 +141,7 @@ export function ProjectsClient({
 }: ProjectsClientProps) {
   const router = useRouter();
   const canManage = role === "admin" || role === "manager";
-  const canViewOrgActivity = role === "admin" || role === "manager";
+  const canViewOrgActivity = role === "admin";
 
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
