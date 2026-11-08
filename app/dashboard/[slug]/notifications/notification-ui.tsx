@@ -14,9 +14,13 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   "task.updated": "Task updated",
   "deliverable.submitted": "Deliverable submitted",
   "review.decided": "Review decision",
+  "blocker.reported": "Blocker reported",
+  "blocker.resolved": "Blocker resolved",
+  "blocker.dismissed": "Blocker dismissed",
   "meeting.participant_added": "Meeting",
   "action_item.assigned": "Action item",
   "deadline.reminder": "Deadline reminder",
+  "member.added": "Member added",
   general: "Notification",
 };
 

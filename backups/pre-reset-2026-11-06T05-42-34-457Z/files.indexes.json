@@ -1,0 +1,56 @@
+[
+  {
+    "v": 2,
+    "key": {
+      "_id": 1
+    },
+    "name": "_id_"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "taskId": 1,
+      "deliverableId": 1,
+      "status": 1
+    },
+    "name": "org_task_deliverable_status"
+  },
+  {
+    "v": 2,
+    "key": {
+      "organizationId": 1,
+      "taskId": 1,
+      "uploadedBy": 1,
+      "status": 1
+    },
+    "name": "org_task_uploader_status"
+  },
+  {
+    "v": 2,
+    "key": {
+      "storageKey": 1
+    },
+    "name": "storage_key_unique",
+    "unique": true,
+    "partialFilterExpression": {
+      "storageKey": {
+        "$type": "string"
+      }
+    }
+  },
+  {
+    "v": 2,
+    "key": {
+      "expiresAt": 1
+    },
+    "name": "files_pending_ttl",
+    "partialFilterExpression": {
+      "status": "pending",
+      "expiresAt": {
+        "$type": "date"
+      }
+    },
+    "expireAfterSeconds": 0
+  }
+]

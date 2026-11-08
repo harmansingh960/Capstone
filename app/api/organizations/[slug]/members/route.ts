@@ -3,6 +3,8 @@ import type { MembershipRole } from "@/lib/schema";
 import {
   addOrganizationMember,
   getOrganizationBySlug,
+  isElevatedMembershipRole,
+  isPlatformAdmin,
   listOrganizationMembers,
   requireSessionUserId,
   TenantAccessError,
@@ -127,9 +129,9 @@ export async function POST(
       throw error;
     }
 
-    if (organization.role !== "admin") {
+    if (organization.role !== "admin" && organization.role !== "manager") {
       return Response.json(
-        { error: "Only organization admins can add members." },
+        { error: "Only organization admins and managers can add members." },
         { status: 403 },
       );
     }
@@ -162,6 +164,26 @@ export async function POST(
       }
     }
 
+    const requestedRole = (body as Record<string, unknown>).role;
+    if (organization.role === "manager" && requestedRole !== "member") {
+      return Response.json(
+        { error: "Managers can only add members with the member role." },
+        { status: 403 },
+      );
+    }
+    if (isElevatedMembershipRole(requestedRole)) {
+      const isPlatform = await isPlatformAdmin(request.headers);
+      if (!isPlatform) {
+        return Response.json(
+          {
+            error:
+              "Only the platform administrator can grant manager or admin roles.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const member = await addOrganizationMember(
       organization._id,
       {
@@ -186,7 +208,7 @@ export async function POST(
         );
       }
       return Response.json(
-        { error: "Only organization admins can add members." },
+        { error: error.message || "Only organization admins and managers can add members." },
         { status: 403 },
       );
     }

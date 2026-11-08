@@ -1,286 +1,384 @@
-# Orchestr — Version 0.8.0
+# Orchestr — Phase 8.5
+## File Upload, Media Management & Storage Infrastructure
 
-## Phase 8: Deployment, Security & Production Readiness
-
-Version 0.8.0 completes the application’s production-infrastructure preparation and backend security-hardening work. It builds on the existing organization, project, task, review, supervision, meeting, and notification workflows.
-
-**Important:** Phase 8 implementation and independent code verification are complete. Actual production deployment and operational configuration remain separate tasks.
+**Project:** Orchestr  
+**Phase:** 8.5  
+**Status:** Implementation complete; live Backblaze B2 integration verification pending  
+**Storage Provider:** Backblaze B2 (S3-compatible API)  
+**Storage Access:** Private bucket with presigned URLs
 
 ---
 
-## 1. Production Infrastructure
+## 1. Overview
 
-### MongoDB Configuration
+Phase 8.5 introduces secure file upload, storage, retrieval, preview, and deletion capabilities to Orchestr.
 
-- Supports production and development MongoDB connection configuration.
-- Supports `MONGODB_DB` and `MONGODB_DB_NAME` database-name configuration.
-- Supports MongoDB URI database-name fallback.
-- Supports configurable MongoDB connection pool size through `MONGODB_MAX_POOL_SIZE`.
-- Reuses the MongoDB client through a global connection reference.
-- Rejects invalid pool-size values before creating a database connection.
-- Keeps database setup additive and idempotent.
-- Logs the selected database name without exposing credentials.
+The objective is to allow team members to submit work-related files directly through tasks and deliverables, while allowing Managers and Admins to review submitted materials.
 
-### Better Auth Configuration
+This phase extends Orchestr's task and deliverable workflow with file management capabilities without requiring users to rely exclusively on external file-sharing services.
 
-- Supports canonical application URL configuration.
-- Supports Vercel production and preview URL fallbacks.
-- Supports additional trusted origins through `BETTER_AUTH_TRUSTED_ORIGINS`.
-- Validates and normalizes trusted origins.
-- Rejects invalid origins, wildcard origins, credentials, paths, query strings, and fragments.
-- Enables secure cookies when using HTTPS.
-- Validates production authentication secrets.
-- Rejects insecure localhost production URLs.
+Google Drive links are also supported as external deliverable references.
 
-### Environment Variables
+## 2. Objectives
 
-The `.env.example` file documents the main configuration variables:
+- Provide secure file uploads for task deliverables.
+- Store files in private cloud storage.
+- Support multiple file formats.
+- Allow Members to upload files to their assigned tasks.
+- Allow Managers and Admins to preview and download submitted files.
+- Integrate uploaded files with deliverable submissions.
+- Support Google Drive links alongside uploaded files.
+- Prevent unauthorized access to stored files.
+- Clean up expired and unattached uploads.
+- Provide retryable file deletion when remote storage operations fail.
 
-| Variable | Purpose |
+## 3. Technology and Infrastructure
+
+| Component | Technology |
 |---|---|
-| `MONGODB_URI` | MongoDB connection string |
-| `MONGODB_DB` | Database name |
-| `MONGODB_MAX_POOL_SIZE` | MongoDB connection pool size |
-| `BETTER_AUTH_SECRET` | Better Auth secret |
-| `BETTER_AUTH_URL` | Canonical application URL |
-| `BETTER_AUTH_TRUSTED_ORIGINS` | Additional trusted origins |
-| `ORCHESTR_CRON_SECRET` | Deadline reminder endpoint secret |
+| Application | Next.js App Router |
+| Language | TypeScript |
+| Database | MongoDB Atlas |
+| Database Driver | Official MongoDB Node.js Driver |
+| Object Storage | Backblaze B2 |
+| Storage API | S3-compatible API |
+| Storage SDK | AWS SDK for JavaScript |
+| Authentication | Better Auth |
+| Validation | Zod |
+| File Access | Short-lived presigned URLs |
 
-Additional security and rate-limiting variables are documented in the environment configuration.
+### Storage configuration
 
----
+The application uses a private Backblaze B2 bucket.
 
-## 2. Security Hardening
+The configured storage setup uses:
 
-### Structured Logging
+- Bucket: `orchestr-files`
+- Region: `eu-central-003`
+- Endpoint: `https://s3.eu-central-003.backblazeb2.com`
+- Bucket visibility: Private
+- Encryption: Backblaze-managed encryption
+- Object Lock: Disabled
 
-Added `lib/logger.ts`.
+The application must not make the bucket publicly accessible.
 
-- Structured JSON logging.
-- Recursive sensitive-field redaction.
-- Sanitized error logging.
-- Avoids exposing secrets and sensitive authentication information in application logs.
+## 4. Architecture
 
-### HTTP Security Headers
+The file management architecture separates application authorization from object storage.
 
-Configured security headers through `next.config.ts`.
+### Upload workflow
 
-Includes:
+1. A Member selects files from a task.
+2. The application validates the user's permissions.
+3. The server validates file type, size, and filename.
+4. The server generates a short-lived presigned upload URL.
+5. The browser uploads the file directly to Backblaze B2.
+6. The client confirms the upload with the application.
+7. The server verifies the uploaded object using storage metadata.
+8. The file record is stored in MongoDB.
+9. The file can be associated with a deliverable submission.
 
-- Content Security Policy (CSP).
-- HTTP Strict Transport Security (HSTS) in production.
-- `X-Content-Type-Options: nosniff`.
-- `X-Frame-Options`.
-- `Referrer-Policy`.
-- `Permissions-Policy`.
+### Download workflow
 
-The current CSP retains `unsafe-inline` and `unsafe-eval` for compatibility with the Next.js runtime. A stricter nonce-based policy can be considered in future hardening.
+1. An authorized user requests a file.
+2. The server validates organization membership and file access permissions.
+3. The server generates a short-lived presigned download URL.
+4. The browser retrieves the file from private storage.
 
-### Origin and Cross-Origin Protection
+### Important architectural principle
 
-Added shared origin validation and Next.js 16 Proxy protection.
+The application server manages authorization and file metadata. The browser communicates directly with object storage for file transfer using temporary presigned URLs.
 
-- Explicit trusted-origin handling.
-- No wildcard CORS configuration.
-- Trusted preflight requests receive an appropriate response.
-- Untrusted cross-origin mutation requests are rejected.
-- Same-origin requests and requests without an Origin header retain their supported behavior.
-- Trusted origins are normalized and validated before use.
+Storage credentials must never be exposed to the browser.
 
-### Authentication and API Rate Limiting
+## 5. Supported File Types and Limits
 
-Added `lib/rate-limit.ts`.
+| File type | Maximum size |
+|---|---:|
+| JPG / JPEG | 25 MB |
+| PNG | 25 MB |
+| WebP | 25 MB |
+| PDF | 50 MB |
+| Office documents | 50 MB |
+| ZIP | 100 MB |
+| TAR.GZ / TGZ / GZ | 100 MB |
+| MP4 | 250 MB |
+| WebM | 250 MB |
+| MOV | 250 MB |
 
-Rate limiting uses MongoDB-backed atomic counters.
+Additional restrictions:
 
-Features:
+- Maximum 10 files per deliverable.
+- Maximum combined deliverable size: 500 MB.
+- SVG files are excluded.
+- File names are sanitized before storage.
+- File type and size allowlists are enforced server-side.
 
-- Per-user and per-IP rate-limit scopes.
-- Fixed 60-second windows.
-- Atomic counter updates.
-- Unique counter keys.
-- TTL-based cleanup.
-- Configurable rate-limit profiles.
-- Configurable failure policies.
-- Emergency rate-limit disable switch.
+## 6. Implemented Features
 
-Default profiles:
+### 6.1 Storage infrastructure
 
-| Profile | Default limit | Scope |
-|---|---:|---|
-| Authentication | 10 requests/minute | IP |
-| Mutation | 60 requests/minute | User |
-| Batch operations | 10 requests/minute | Organization/IP |
-| General API | 120 requests/minute | User |
+- Server-only Backblaze B2 storage client.
+- AWS S3-compatible SDK integration.
+- Explicit production storage configuration.
+- Private bucket access.
+- Presigned upload and download URLs.
+- Storage metadata verification.
+- File storage abstraction in `lib/storage.ts`.
 
-Rate limiting is integrated into important operations, including authentication, organization creation, member addition, task creation, deliverable submission, review decisions, meeting action-item conversion, and deadline reminders.
+### 6.2 Secure file management
 
-### Rate-Limit Failure Policies
+The file management implementation includes:
 
-- Authentication and batch profiles default to fail-closed.
-- Mutation profiles default to fail-open.
-- Fail-closed requests return HTTP 503 when the rate-limit store is unavailable.
-- Failure policies can be configured through environment variables.
-- Invalid policy values fall back to the profile defaults.
+- File type validation.
+- File size validation.
+- Filename sanitization.
+- Presigned upload URL generation.
+- Upload confirmation.
+- Object existence verification.
+- File listing.
+- Authorized downloads.
+- File deletion.
+- Safe file metadata DTOs.
+- Organization-level access enforcement.
 
-Relevant configuration:
+### 6.3 Member upload interface
 
-- `RATE_LIMIT_DISABLED`
-- `RATE_LIMIT_AUTH_FAILURE_POLICY`
-- `RATE_LIMIT_BATCH_FAILURE_POLICY`
-- `RATE_LIMIT_MUTATION_FAILURE_POLICY`
-- `TRUSTED_CLIENT_IP_HEADER`
+The task interface supports:
 
-IP identification supports validated trusted proxy headers. Custom headers must be overwritten by the trusted upstream proxy. Direct-origin access must be restricted when relying on proxy-provided client IP headers.
+- File picker.
+- Drag-and-drop uploads.
+- Upload progress indicators.
+- Upload retries.
+- Upload confirmation.
+- Staging files before deliverable submission.
+- Multiple file uploads.
 
----
+### 6.4 Manager and Admin review interface
 
-## 3. Database Changes
+Authorized reviewers can:
 
-Added the `rate_limits` collection.
+- View submitted files.
+- Preview supported image files.
+- Preview PDF documents.
+- Preview supported video formats.
+- Download submitted files.
+- Review deliverables through the existing approval workflow.
 
-The database setup includes:
+### 6.5 Google Drive integration
 
-- Rate-limit document validation.
-- Unique counter-key index.
-- TTL index for automatic expiration.
-- Existing application collections and indexes remain managed through the additive database setup process.
+Google Drive links can be included as deliverable references.
 
-Run the following command against the intended database:
+The implementation recognizes Drive links and supports submissions combining uploaded files and external links.
 
-```bash
-npm run db:setup
+**Scope limitation:** This is link-based integration. Google OAuth and direct Google Drive API integration are not included.
+
+### 6.6 Expired upload cleanup
+
+The cleanup system handles expired and unattached pending uploads.
+
+It includes:
+
+- Expiration checks.
+- Cleanup leases.
+- Random lease tokens.
+- Concurrent worker protection.
+- Bounded retry attempts.
+- Idempotent handling of already-missing remote objects.
+
+### 6.7 Retryable deletion lifecycle
+
+A deletion lifecycle repair introduced the `deletion_pending` state.
+
+When a remote deletion fails or storage configuration is unavailable:
+
+- The database retains the file's storage metadata.
+- The file is marked `deletion_pending`.
+- The object is not incorrectly treated as deleted.
+- Cleanup can retry the remote deletion.
+- Storage metadata is cleared only after confirmed deletion.
+- Missing remote objects are treated as successful deletion when appropriate.
+
+This prevents orphaned remote files caused by prematurely marking failed deletions as complete.
+
+## 7. API Endpoints
+
+The implementation includes the following file-management API operations:
+
+| Operation | Endpoint |
+|---|---|
+| Generate upload URL | `/api/organizations/[slug]/files/upload-url` |
+| Confirm upload | `/api/organizations/[slug]/files/confirm` |
+| List files | `/api/organizations/[slug]/files` |
+| Download file | `/api/organizations/[slug]/files/[fileId]/download` |
+| Delete file | `/api/organizations/[slug]/files/[fileId]` |
+
+Deliverable submission APIs support associating uploaded file IDs with submissions.
+
+Exact HTTP methods and request schemas should be checked against the current route implementations.
+
+## 8. Database and File Lifecycle
+
+File metadata is stored in MongoDB. The actual file contents remain in Backblaze B2.
+
+The implementation uses file records and indexes to support:
+
+- Organization-scoped file access.
+- Pending upload tracking.
+- File association with deliverables.
+- Expired upload cleanup.
+- Retryable deletion.
+- Cleanup concurrency protection.
+
+### File lifecycle states
+
+| State | Meaning |
+|---|---|
+| Pending | Upload initiated but not yet confirmed |
+| Active | Upload confirmed and available for authorized use |
+| Deletion pending | Remote deletion needs retry |
+| Deleted | Remote deletion confirmed |
+
+The database retains the metadata required to retry failed remote deletion operations.
+
+## 9. Security
+
+Security requirements for Phase 8.5 include:
+
+1. Backblaze B2 bucket remains private.
+2. Storage credentials remain server-side.
+3. Presigned URLs are short-lived.
+4. Organization membership is checked before file access.
+5. Unauthorized users cannot retrieve protected files.
+6. File types and sizes are validated on the server.
+7. Filenames are sanitized.
+8. File metadata responses exclude sensitive storage credentials.
+9. Cleanup operations use leases and concurrency protection.
+10. Failed deletions retain the information needed for retries.
+
+### Environment variables
+
+Configure the following variables in the local environment:
+
+```env
+B2_KEY_ID=
+B2_APPLICATION_KEY=
+B2_ENDPOINT=
+B2_BUCKET_NAME=
+B2_REGION=
 ```
 
-For production, confirm the database connection and database name before running this command.
+Supported fallback aliases:
 
----
+```env
+B2_APPLICATION_KEY_ID=
+B2_APPLICATION_KEY_SECRET=
+```
 
-## 4. Health Checks and Monitoring
+Use the canonical variable names wherever possible.
 
-Updated `/api/health`.
+**Important:**
+- Never commit `.env.local`.
+- Never commit real storage credentials.
+- Keep `.env.example` limited to placeholders.
+- Never change the bucket to public access.
+- Production must use explicit bucket, region, and endpoint configuration.
+- Do not share credentials in chat, screenshots, or logs.
 
-The health endpoint provides:
+## 10. CORS Configuration
 
-- Database connectivity status.
-- Database latency information.
-- Structured and sanitized error reporting.
+The private Backblaze B2 bucket requires suitable CORS configuration for browser-based transfers.
 
-Application logging supports structured output suitable for an external logging or monitoring service.
+The configured policy should:
 
-External log-drain configuration and production monitoring setup remain deployment responsibilities.
+- Allow only the required application origins.
+- Support `PUT`, `GET`, and `HEAD`.
+- Expose the `ETag` response header.
+- Avoid wildcard origins in production.
+- Preserve private bucket visibility.
 
----
+Local development and production origins must be configured separately where necessary.
 
-## 5. Backup and Recovery Preparation
+## 11. Testing and Verification
 
-Production database operations should include:
+The implementation has undergone independent code-level verification.
 
-- Verified MongoDB Atlas backup configuration.
-- Continuous backups and point-in-time recovery where supported by the selected Atlas tier.
-- A documented recovery procedure.
-- Periodic restore testing.
-- Separate production database credentials with least-privilege access.
-
-For tiers without continuous backups, establish a manual backup and restore process.
-
-Backup availability must be confirmed in MongoDB Atlas; documentation alone does not enable backups.
-
----
-
-## 6. Deployment Configuration
-
-The application is prepared for deployment using Vercel and MongoDB Atlas.
-
-Production setup requires:
-
-1. Create a separate production MongoDB database.
-2. Create a dedicated least-privilege database user.
-3. Configure production environment variables in Vercel.
-4. Run database setup against the production database.
-5. Configure the production application URL and trusted origins.
-6. Configure the cron secret and schedule deadline reminders.
-7. Configure rate-limit and trusted proxy settings where necessary.
-8. Deploy the application.
-9. Verify the production health endpoint and critical workflows.
-
-The local Docker development setup remains supported.
-
-**Production deployment is not included in the completed code-verification status.**
-
----
-
-## 7. Verification Results
-
-Phase 8 underwent independent verification using a separate testing session.
-
-### Batch 1 — Production Infrastructure
-
-- TypeScript checks passed.
-- ESLint passed.
-- Production build passed.
-- MongoDB configuration validation passed.
-- MongoDB pool-size validation passed.
-- Better Auth URL and trusted-origin validation passed.
-- Vercel URL fallback handling passed.
-- Database setup behavior reviewed.
-
-### Batch 2 — Security and Reliability
-
-- TypeScript checks passed.
-- ESLint passed.
-- Production build passed.
-- Rate-limit counter behavior verified.
-- Atomic counter updates verified.
-- Unique index and TTL configuration verified.
-- Authentication and batch failure policies verified.
-- IP validation and trusted-header handling reviewed.
-- Origin protection and CORS behavior verified.
-- Rate-limit integrations reviewed.
-- Database collection counts remained unchanged during the final verification.
-
-No Critical, High, or Medium residual findings were reported in the final independent verification.
-
----
-
-## 8. Known Limitations and Operational Requirements
-
-- Production deployment has not yet been confirmed.
-- Production environment variables and database setup must be completed.
-- MongoDB Atlas network access must be restricted appropriately.
-- Production backups must be explicitly enabled and verified.
-- External monitoring and log-drain services require configuration.
-- Deadline reminder scheduling must be configured.
-- Cloudflare deployments must restrict direct origin access and correctly configure trusted proxy behavior.
-- The current Content Security Policy retains compatibility-oriented directives.
-- Notification dispatch remains best-effort; a durable outbox and retry worker have not been implemented.
-
----
-
-## 9. Version 0.8.0 Completion Status
-
-| Area | Status |
+| Component | Reported result |
 |---|---|
-| Production infrastructure code | Complete |
-| MongoDB configuration | Complete |
-| Better Auth production configuration | Complete |
-| Security headers | Complete |
-| Origin protection | Complete |
-| API rate limiting | Complete |
-| Structured logging | Complete |
-| Health-check improvements | Complete |
-| Independent verification | Passed |
-| Production database setup | Pending |
-| Production deployment | Pending |
-| Backup and monitoring activation | Pending |
-| Production smoke testing | Pending |
+| Storage infrastructure | PASS |
+| Secure file APIs | PASS |
+| Member upload interface | PASS |
+| Manager/Admin review interface | PASS |
+| Google Drive link handling | PASS |
+| Pending upload cleanup | PASS |
+| Retryable deletion lifecycle | PASS |
+| TypeScript checks | PASS |
+| Lint checks | PASS, with a previously reported pre-existing image warning |
+| Production build | PASS |
+
+Independent verification also covered deletion concurrency, retry limits, lease-token protection, legacy file records, authorization, and metadata preservation.
+
+### Outstanding live integration verification
+
+**Real Backblaze B2 upload and download testing remains pending.**
+
+Code-level tests do not prove that the deployed or local environment can successfully communicate with the actual B2 bucket.
+
+The following still require live verification:
+
+- Correct credentials and environment configuration.
+- Browser upload through the actual B2 CORS policy.
+- Upload confirmation against the real object.
+- Authorized download and preview.
+- Actual remote deletion.
+- Retry behavior after a real storage failure.
+
+## 12. Known Scope Limitations
+
+Phase 8.5 does not include:
+
+- Google OAuth.
+- Direct Google Drive API integration.
+- Public file sharing.
+- A public storage bucket.
+- Advanced media editing.
+- Video transcoding.
+- Image processing pipelines.
+- Antivirus scanning.
+- Enterprise document management.
+- A dedicated background worker infrastructure.
+
+These may be considered separately if real usage demonstrates a need.
+
+## 13. Relationship With the Core Orchestr Workflow
+
+Phase 8.5 extends the existing task and deliverable workflow.
+
+The intended operational process is:
+
+1. Manager creates a project.
+2. Manager assigns tasks to Members.
+3. Members complete assigned work.
+4. Members upload files or provide Google Drive links.
+5. Members submit their deliverables.
+6. Managers or Admins preview and review submitted work.
+7. Reviewers approve or request changes.
+8. Task completion follows the existing deliverable approval rules.
+
+This keeps files connected to the work they represent rather than treating file storage as a separate system.
+
+## 14. Completion Summary
+
+Phase 8.5 establishes the foundation for secure file handling in Orchestr.
+
+The implemented capabilities cover storage infrastructure, secure upload and download APIs, Member upload UI, Manager/Admin review UI, Google Drive link recognition, pending upload cleanup, and retryable file deletion.
+
+**Implementation status:** Complete according to the reported independent code-verification results.
+
+**Remaining work:** Live Backblaze B2 integration verification and any production-specific configuration checks.
 
 ---
 
-## 10. Next Development Stage
-
-With Phase 8 implementation complete, the recommended next stage is **Frontend UI/UX Refinement**.
-
-After frontend refinement and production deployment, Orchestr can move into Phase 9: Real Usage Pilot.
-
-The pilot should validate the complete workflow with a small team, identify usability problems, and prioritize improvements based on actual usage.
+*Document: Orchestr Phase 8.5 README*  
+*Purpose: Technical documentation and project handover*  
+*Status reflects reported implementation and verification results, not an independently inspected live deployment.*

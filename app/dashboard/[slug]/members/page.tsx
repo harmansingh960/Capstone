@@ -2,15 +2,20 @@ import { Suspense } from "react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { getAuth } from "@/lib/auth";
 import {
   getOrganizationBySlug,
+  isPlatformAdmin,
+  listOrganizationMembers,
   TenantAccessError,
   type UserOrganization,
 } from "@/lib/tenancy";
 import { SignOutButton } from "../../sign-out-button";
 import { NotificationBell } from "../notification-bell";
 import { MembersClient, type MemberSummary } from "./members-client";
+
+export const instant = false;
 
 export default function OrganizationMembersPage({
   params,
@@ -26,45 +31,12 @@ export default function OrganizationMembersPage({
   );
 }
 
-async function fetchInitialMembers(
-  slug: string,
-  requestHeaders: Headers,
-): Promise<MemberSummary[]> {
-  const host =
-    requestHeaders.get("x-forwarded-host") ??
-    requestHeaders.get("host") ??
-    "localhost:3000";
-  const protocol =
-    requestHeaders.get("x-forwarded-proto") ??
-    (host.startsWith("localhost") || host.startsWith("127.0.0.1")
-      ? "http"
-      : "https");
-  const cookie = requestHeaders.get("cookie") ?? "";
-
-  const response = await fetch(
-    `${protocol}://${host}/api/organizations/${encodeURIComponent(slug)}/members`,
-    {
-      headers: cookie ? { cookie } : undefined,
-      cache: "no-store",
-    },
-  );
-
-  if (response.status === 401) {
-    redirect("/login");
-  }
-  if (!response.ok) {
-    return [];
-  }
-
-  const data = (await response.json()) as { members?: MemberSummary[] };
-  return Array.isArray(data.members) ? data.members : [];
-}
-
 async function OrganizationMembersWorkspace({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  await connection();
   const { slug } = await params;
   const requestHeaders = await headers();
   const session = await getAuth().api.getSession({ headers: requestHeaders });
@@ -95,10 +67,16 @@ async function OrganizationMembersWorkspace({
     );
   }
 
-  const initialMembers = await fetchInitialMembers(
-    organization.slug,
-    requestHeaders,
-  );
+  const [rawMembers, userIsPlatformAdmin] = await Promise.all([
+    listOrganizationMembers(organization._id, requestHeaders),
+    isPlatformAdmin(requestHeaders),
+  ]);
+  const initialMembers: MemberSummary[] = rawMembers.map((m) => ({
+    userId: m.userId,
+    role: m.role,
+    name: m.name ?? null,
+    email: m.email ?? null,
+  }));
 
   return (
     <>
@@ -132,6 +110,7 @@ async function OrganizationMembersWorkspace({
         currentUserRole={organization.role}
         currentUserId={session.user.id}
         initialMembers={initialMembers}
+        isPlatformAdmin={userIsPlatformAdmin}
       />
     </>
   );

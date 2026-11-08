@@ -3,7 +3,9 @@ import { getDb } from "@/lib/db";
 import {
   COLLECTIONS,
   type ActivityDoc,
+  type BlockerDoc,
   type DeliverableDoc,
+  type FileDoc,
   type MeetingActionItemDoc,
   type MeetingDoc,
   type MembershipDoc,
@@ -35,6 +37,7 @@ export async function getCollections() {
     ),
     deliverables: db.collection<DeliverableDoc>(COLLECTIONS.deliverables),
     reviews: db.collection<ReviewDoc>(COLLECTIONS.reviews),
+    blockers: db.collection<BlockerDoc>(COLLECTIONS.blockers),
     activities: db.collection<ActivityDoc>(COLLECTIONS.activities),
     meetings: db.collection<MeetingDoc>(COLLECTIONS.meetings),
     meetingActionItems: db.collection<MeetingActionItemDoc>(
@@ -42,5 +45,6 @@ export async function getCollections() {
     ),
     notifications: db.collection<NotificationDoc>(COLLECTIONS.notifications),
     rateLimits: db.collection<RateLimitDoc>(COLLECTIONS.rateLimits),
+    files: db.collection<FileDoc>(COLLECTIONS.files),
   };
 }

@@ -16,6 +16,19 @@ export type UserId = string;
 export const MEMBERSHIP_ROLES = ["admin", "manager", "member"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
 
+export const PLATFORM_ROLES = ["platform_admin"] as const;
+export type PlatformRole = (typeof PLATFORM_ROLES)[number];
+
+export type UserDoc = {
+  _id: ObjectId | string;
+  name?: string | null;
+  email?: string | null;
+  emailVerified?: boolean;
+  platformRole?: PlatformRole | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+};
+
 export const PROJECT_STATUSES = ["active", "archived"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
@@ -60,8 +73,10 @@ export const ACTIVITY_TARGET_TYPES = [
   "dependency",
   "deliverable",
   "review",
+  "blocker",
   "meeting",
   "action_item",
+  "file",
 ] as const;
 export type ActivityTargetType = (typeof ACTIVITY_TARGET_TYPES)[number];
 
@@ -84,6 +99,9 @@ export const ACTIVITY_EVENT_TYPES = [
   "review.approved",
   "review.changes_requested",
   "review.decision_updated",
+  "blocker.reported",
+  "blocker.resolved",
+  "blocker.dismissed",
   "meeting.created",
   "meeting.updated",
   "meeting.archived",
@@ -96,6 +114,8 @@ export const ACTIVITY_EVENT_TYPES = [
   "action_item.updated",
   "action_item.status_changed",
   "action_item.converted_to_task",
+  "file.uploaded",
+  "file.deleted",
 ] as const;
 export type ActivityEventType = (typeof ACTIVITY_EVENT_TYPES)[number];
 
@@ -107,9 +127,13 @@ export const NOTIFICATION_TYPES = [
   "task.updated",
   "deliverable.submitted",
   "review.decided",
+  "blocker.reported",
+  "blocker.resolved",
+  "blocker.dismissed",
   "meeting.participant_added",
   "action_item.assigned",
   "deadline.reminder",
+  "member.added",
   "general",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -120,10 +144,27 @@ export const NOTIFICATION_ENTITY_TYPES = [
   "task",
   "deliverable",
   "review",
+  "blocker",
   "meeting",
   "action_item",
 ] as const;
 export type NotificationEntityType = (typeof NOTIFICATION_ENTITY_TYPES)[number];
+
+export const FILE_STATUSES = [
+  "pending",
+  "uploaded",
+  "attached",
+  "deleted",
+  "failed",
+  "deletion_pending",
+] as const;
+export type FileStatus = (typeof FILE_STATUSES)[number];
+
+export const FILE_ATTACHMENT_TYPES = ["upload", "google_drive"] as const;
+export type FileAttachmentType = (typeof FILE_ATTACHMENT_TYPES)[number];
+
+export const FILE_STORAGE_PROVIDERS = ["backblaze_b2"] as const;
+export type FileStorageProvider = (typeof FILE_STORAGE_PROVIDERS)[number];
 
 // Plural names keep app-owned collections visually separate from Better Auth's
 // singular ones, and avoid clashing with its organization plugin
@@ -136,11 +177,13 @@ export const COLLECTIONS = {
   taskDependencies: "task_dependencies",
   deliverables: "deliverables",
   reviews: "reviews",
+  blockers: "blockers",
   activities: "activities",
   meetings: "meetings",
   meetingActionItems: "meeting_action_items",
   notifications: "notifications",
   rateLimits: "rate_limits",
+  files: "files",
 } as const;
 
 export type RateLimitDoc = {
@@ -295,7 +338,45 @@ export type TaskDependencyDoc = {
   createdAt: Date;
 };
 
-export type ActivityFieldValue = string | number | boolean | null;
+export const BLOCKER_TYPES = ["task_dependency", "general"] as const;
+export type BlockerType = (typeof BLOCKER_TYPES)[number];
+
+export const BLOCKER_STATUSES = ["open", "resolved", "dismissed"] as const;
+export type BlockerStatus = (typeof BLOCKER_STATUSES)[number];
+
+/**
+ * A blocker report filed against a project task.
+ * `type === "task_dependency"` requires `dependencyTaskId` pointing to another
+ * task within the same organization and project.
+ * `type === "general"` represents non-task obstacles (e.g. access, external resources).
+ * Only managers and platform admins can resolve or dismiss blockers.
+ */
+export type BlockerDoc = {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  projectId: ObjectId;
+  taskId: ObjectId;
+  reporterId: UserId;
+  type: BlockerType;
+  dependencyTaskId?: ObjectId | null;
+  description: string;
+  impact: string;
+  status: BlockerStatus;
+  descriptionFingerprint?: string | null;
+  resolutionNote?: string | null;
+  resolvedBy?: UserId | null;
+  resolvedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type ActivityFieldValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly string[]
+  | string[];
 
 export type ActivityFieldChange = {
   field: string;
@@ -402,6 +483,37 @@ export type NotificationDoc = {
   dedupeKey?: string | null;
   createdAt: Date;
   readAt: Date | null;
+};
+
+/**
+ * A file or media attachment record. Binary content is stored in Backblaze B2 (for uploads)
+ * or referenced via external URL (for Google Drive attachments).
+ */
+export type FileDoc = {
+  _id: ObjectId;
+  organizationId: ObjectId;
+  projectId: ObjectId;
+  taskId: ObjectId;
+  deliverableId?: ObjectId | null;
+  attachmentType: FileAttachmentType;
+  storageProvider?: FileStorageProvider | null;
+  bucketName?: string | null;
+  storageKey?: string | null;
+  externalUrl?: string | null;
+  originalFilename: string;
+  sanitizedFilename: string;
+  mimeType: string;
+  fileSize: number;
+  checksum?: string | null;
+  uploadedBy: UserId;
+  status: FileStatus;
+  expiresAt?: Date | null;
+  cleanupLockedUntil?: Date | null;
+  cleanupLeaseToken?: string | null;
+  cleanupError?: string | null;
+  cleanupAttempts?: number;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 // ---------------------------------------------------------------------------
@@ -658,6 +770,91 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
           taskId: 1,
         },
         name: "org_project_prereq_task",
+      },
+    ],
+  },
+  {
+    name: COLLECTIONS.blockers,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "projectId",
+        "taskId",
+        "reporterId",
+        "type",
+        "description",
+        "impact",
+        "status",
+        "createdAt",
+        "updatedAt",
+      ],
+      properties: {
+        _id: objectId,
+        organizationId: objectId,
+        projectId: objectId,
+        taskId: objectId,
+        reporterId: userId,
+        type: { enum: [...BLOCKER_TYPES] },
+        dependencyTaskId: { bsonType: ["objectId", "null"] },
+        description: { bsonType: "string", minLength: 1, maxLength: 5000 },
+        impact: { bsonType: "string", minLength: 1, maxLength: 5000 },
+        status: { enum: [...BLOCKER_STATUSES] },
+        descriptionFingerprint: { bsonType: ["string", "null"], maxLength: 128 },
+        resolutionNote: { bsonType: ["string", "null"], maxLength: 5000 },
+        resolvedBy: { bsonType: ["string", "null"], minLength: 1, maxLength: 128 },
+        resolvedAt: { bsonType: ["date", "null"] },
+        ...timestamps,
+      },
+      additionalProperties: true,
+    },
+    indexes: [
+      {
+        key: { organizationId: 1, projectId: 1, taskId: 1, status: 1 },
+        name: "org_project_task_status",
+      },
+      {
+        key: { organizationId: 1, projectId: 1, status: 1, createdAt: -1 },
+        name: "org_project_status_created",
+      },
+      {
+        key: { organizationId: 1, reporterId: 1, status: 1 },
+        name: "org_reporter_status",
+      },
+      {
+        key: { organizationId: 1, dependencyTaskId: 1 },
+        name: "org_dependency_task",
+        partialFilterExpression: { dependencyTaskId: { $type: "objectId" } },
+      },
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          taskId: 1,
+          dependencyTaskId: 1,
+        },
+        name: "uniq_open_task_dependency_blocker",
+        unique: true,
+        partialFilterExpression: {
+          status: "open",
+          type: "task_dependency",
+          dependencyTaskId: { $type: "objectId" },
+        },
+      },
+      {
+        key: {
+          organizationId: 1,
+          projectId: 1,
+          taskId: 1,
+          descriptionFingerprint: 1,
+        },
+        name: "uniq_open_general_blocker_fingerprint",
+        unique: true,
+        partialFilterExpression: {
+          status: "open",
+          type: "general",
+          descriptionFingerprint: { $type: "string" },
+        },
       },
     ],
   },
@@ -960,6 +1157,96 @@ export const COLLECTION_DEFINITIONS: readonly CollectionDefinition[] = [
       { key: { resetAt: 1 }, expireAfterSeconds: 0, name: "rate_limit_ttl" },
     ],
   },
+  {
+    name: COLLECTIONS.files,
+    schema: {
+      bsonType: "object",
+      required: [
+        "organizationId",
+        "projectId",
+        "taskId",
+        "attachmentType",
+        "originalFilename",
+        "sanitizedFilename",
+        "mimeType",
+        "fileSize",
+        "uploadedBy",
+        "status",
+        "createdAt",
+        "updatedAt",
+      ],
+      properties: {
+        _id: objectId,
+        organizationId: objectId,
+        projectId: objectId,
+        taskId: objectId,
+        deliverableId: { bsonType: ["objectId", "null"] },
+        attachmentType: { enum: [...FILE_ATTACHMENT_TYPES] },
+        storageProvider: {
+          bsonType: ["string", "null"],
+          enum: [...FILE_STORAGE_PROVIDERS, null],
+        },
+        bucketName: { bsonType: ["string", "null"], maxLength: 255 },
+        storageKey: { bsonType: ["string", "null"], maxLength: 1024 },
+        externalUrl: { bsonType: ["string", "null"], maxLength: 2048 },
+        originalFilename: { bsonType: "string", minLength: 1, maxLength: 1000 },
+        sanitizedFilename: { bsonType: "string", minLength: 1, maxLength: 1000 },
+        mimeType: { bsonType: "string", minLength: 1, maxLength: 255 },
+        fileSize: { bsonType: ["int", "long", "double"], minimum: 0 },
+        checksum: { bsonType: ["string", "null"], maxLength: 255 },
+        uploadedBy: userId,
+        status: { enum: [...FILE_STATUSES] },
+        expiresAt: { bsonType: ["date", "null"] },
+        cleanupLockedUntil: { bsonType: ["date", "null"] },
+        cleanupLeaseToken: { bsonType: ["string", "null"], maxLength: 128 },
+        cleanupError: { bsonType: ["string", "null"], maxLength: 1000 },
+        cleanupAttempts: { bsonType: "int", minimum: 0 },
+        ...timestamps,
+      },
+      additionalProperties: true,
+    },
+    indexes: [
+      // 1. Organization, task, deliverable and status:
+      // Active attachments on a task or deliverable submission
+      {
+        key: { organizationId: 1, taskId: 1, deliverableId: 1, status: 1 },
+        name: "org_task_deliverable_status",
+      },
+      // 2. Organization, task, uploader and status:
+      // Staged, unattached uploads during draft submissions
+      {
+        key: { organizationId: 1, taskId: 1, uploadedBy: 1, status: 1 },
+        name: "org_task_uploader_status",
+      },
+      // 3. Unique storage key:
+      // Guarantees zero duplicate object keys in the bucket
+      {
+        key: { storageKey: 1 },
+        name: "storage_key_unique",
+        unique: true,
+        partialFilterExpression: { storageKey: { $type: "string" } },
+      },
+      // 4. Pending expiration query index:
+      // Used by scheduled cleanup worker to discover expired pending uploads without dropping them before S3 deletion
+      {
+        key: { status: 1, expiresAt: 1 },
+        name: "files_pending_expires_at",
+        partialFilterExpression: {
+          status: "pending",
+          expiresAt: { $type: "date" },
+        },
+      },
+      // 5. Deletion pending query index:
+      // Used by scheduled cleanup worker to discover files awaiting remote B2 deletion retry
+      {
+        key: { organizationId: 1, status: 1, cleanupLockedUntil: 1 },
+        name: "files_deletion_pending_cleanup",
+        partialFilterExpression: {
+          status: "deletion_pending",
+        },
+      },
+    ],
+  },
 ];
 
 export type SchemaSetupResult = {
@@ -1008,8 +1295,43 @@ export async function ensureSchema(db: Db): Promise<SchemaSetupResult[]> {
       action = "validator-updated";
     }
 
+    if (def.name === COLLECTIONS.files && existing.has(COLLECTIONS.files)) {
+      try {
+        const existingIndexes = await db
+          .collection(COLLECTIONS.files)
+          .listIndexes()
+          .toArray();
+        if (existingIndexes.some((idx) => idx.name === "files_pending_ttl")) {
+          await db.collection(COLLECTIONS.files).dropIndex("files_pending_ttl");
+        }
+      } catch {
+        // Safe to ignore if index does not exist or collection is uninitialized
+      }
+    }
+
     const indexes = await db.collection(def.name).createIndexes(def.indexes);
     results.push({ collection: def.name, action, indexes });
   }
+
+  // Ensure unique partial index on the Better Auth "user" collection to guarantee
+  // that across the entire website, at most ONE user can hold the platform_admin role.
+  try {
+    const userIndexName = await db.collection("user").createIndex(
+      { platformRole: 1 },
+      {
+        name: "single_platform_admin_unique",
+        unique: true,
+        partialFilterExpression: { platformRole: "platform_admin" },
+      },
+    );
+    results.push({
+      collection: "user",
+      action: "unchanged",
+      indexes: [userIndexName],
+    });
+  } catch {
+    // Safe to ignore if user collection is not yet initialized
+  }
+
   return results;
 }

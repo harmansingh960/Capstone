@@ -1,5 +1,6 @@
 import { connection } from "next/server";
-import type { DeliverableDoc, ReviewDecision, ReviewDoc } from "@/lib/schema";
+import type { DeliverableDoc, FileDoc, ReviewDecision, ReviewDoc } from "@/lib/schema";
+import { toFileDto, type FileDto } from "@/lib/files";
 import { enforceRateLimit, RATE_LIMIT_PROFILES } from "@/lib/rate-limit";
 import {
   createDeliverable,
@@ -32,11 +33,13 @@ type DeliverableDto = {
   url: string | null;
   createdAt: string;
   reviews: ReviewDto[];
+  files: FileDto[];
 };
 
 const ALLOWED_CREATE_FIELDS: ReadonlySet<string> = new Set([
   "description",
   "url",
+  "fileIds",
 ]);
 
 const PROJECT_NOT_IN_ORG_MESSAGE =
@@ -76,6 +79,7 @@ function toReviewDto(review: ReviewDoc): ReviewDto {
 function toDeliverableDto(
   deliverable: DeliverableDoc,
   reviews: ReviewDoc[] = [],
+  files: FileDoc[] = [],
 ): DeliverableDto {
   return {
     id: deliverable._id.toHexString(),
@@ -86,6 +90,7 @@ function toDeliverableDto(
     url: deliverable.url ?? null,
     createdAt: deliverable.createdAt.toISOString(),
     reviews: reviews.map(toReviewDto),
+    files: files.map(toFileDto),
   };
 }
 
@@ -141,7 +146,7 @@ export async function GET(
     return Response.json(
       {
         deliverables: deliverables.map((d) =>
-          toDeliverableDto(d, d.reviews),
+          toDeliverableDto(d, d.reviews, d.files),
         ),
       },
       { status: 200 },
@@ -250,7 +255,7 @@ export async function POST(
       if (!ALLOWED_CREATE_FIELDS.has(key)) {
         return Response.json(
           {
-            error: `Unexpected field "${key}". Only "description" and "url" are allowed.`,
+            error: `Unexpected field "${key}". Only "description", "url", and "fileIds" are allowed.`,
           },
           { status: 400 },
         );
@@ -264,12 +269,13 @@ export async function POST(
         taskId: parsedTaskId,
         description: body.description as string | null | undefined,
         url: body.url as string | null | undefined,
+        fileIds: body.fileIds as string[] | null | undefined,
       },
       request.headers,
     );
 
     return Response.json(
-      { deliverable: toDeliverableDto(deliverable, []) },
+      { deliverable: toDeliverableDto(deliverable, [], deliverable.files) },
       { status: 201 },
     );
   } catch (error) {

@@ -258,6 +258,26 @@ export async function PATCH(
       }
     }
 
+    if (organization.role !== "admin" && organization.role !== "manager") {
+      const hasRestrictedFields =
+        "title" in record ||
+        "description" in record ||
+        "priority" in record ||
+        "assigneeId" in record ||
+        "deadline" in record ||
+        "parentTaskId" in record ||
+        "approvalRequired" in record;
+      if (hasRestrictedFields) {
+        return Response.json(
+          {
+            error:
+              "Only organization admins and managers can edit task details.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const updateInput: UpdateTaskInput = {};
 
     if ("title" in record) {
