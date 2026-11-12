@@ -5352,10 +5352,21 @@ async function queryPaginatedActivities(
   };
 
   if (cursor) {
-    filter.$or = [
+    const cursorConditions = [
       { createdAt: { $lt: cursor.createdAt } },
       { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
     ];
+    if (baseFilter.$or) {
+      delete filter.$or;
+      const existingAnd = Array.isArray(baseFilter.$and) ? baseFilter.$and : [];
+      filter.$and = [
+        ...existingAnd,
+        { $or: baseFilter.$or as Record<string, unknown>[] },
+        { $or: cursorConditions },
+      ];
+    } else {
+      filter.$or = cursorConditions;
+    }
   }
 
   const { activities } = await getCollections();
@@ -5382,7 +5393,7 @@ async function queryPaginatedActivities(
 
 /**
  * Lists organization-wide activity in deterministic newest-first order with
- * cursor pagination. Accessible to any authenticated member of `organizationId`.
+ * cursor pagination. Accessible to organization admins of `organizationId`.
  */
 export async function listOrganizationActivity(
   organizationId: ObjectId,
@@ -5391,7 +5402,7 @@ export async function listOrganizationActivity(
 ): Promise<ActivityPage> {
   const membership = await requireMembership(
     organizationId,
-    MANAGER_ROLES,
+    ADMIN_ROLES,
     requestHeaders,
   );
   return queryPaginatedActivities(membership.organizationId, {}, options);
@@ -5401,7 +5412,8 @@ export async function listOrganizationActivity(
  * Lists project-scoped activity (including all task, subtask, dependency,
  * deliverable, and review events within the project) in deterministic
  * newest-first order with cursor pagination. Preserves read access on archived
- * projects.
+ * projects. Admins see all project activity; Managers see their own activity
+ * plus activity from Members assigned to tasks within this project.
  */
 export async function listProjectActivity(
   organizationId: ObjectId,
@@ -5415,9 +5427,97 @@ export async function listProjectActivity(
     requestHeaders,
   );
   const project = await requireProjectInOrg(membership, projectId);
+
+  if (membership.role === "admin") {
+    return queryPaginatedActivities(
+      membership.organizationId,
+      { projectId: project._id },
+      options,
+    );
+  }
+
+  // Manager:
+  // 1. Activity created by the authenticated Manager themselves within the authorized project.
+  // 2. Activity created by Members belonging to the same organization who are assigned to tasks within that project.
+  // Hide: activity created by Admins, other Managers, Members not assigned to tasks in the project,
+  // or Member activity not associated with their assigned tasks.
+  const { tasks, memberships } = await getCollections();
+  const projectTasks = await tasks
+    .find(
+      {
+        organizationId: membership.organizationId,
+        projectId: project._id,
+        assigneeId: { $ne: null },
+      },
+      { projection: { _id: 1, assigneeId: 1 } },
+    )
+    .toArray();
+
+  const candidateAssigneeIds = Array.from(
+    new Set(
+      projectTasks
+        .map((t) => normalizeUserIdValue(t.assigneeId))
+        .filter((id): id is string => id !== null),
+    ),
+  );
+
+  const memberTaskMap = new Map<string, ObjectId[]>();
+
+  if (candidateAssigneeIds.length > 0) {
+    const memberMemberships = await memberships
+      .find(
+        {
+          organizationId: membership.organizationId,
+          userId: { $in: candidateAssigneeIds },
+          role: "member",
+        },
+        { projection: { userId: 1, role: 1 } },
+      )
+      .toArray();
+
+    const verifiedMemberUserIds = new Set(
+      memberMemberships
+        .map((m) => normalizeUserIdValue(m.userId))
+        .filter((id): id is string => id !== null),
+    );
+
+    for (const task of projectTasks) {
+      const normalizedAssignee = normalizeUserIdValue(task.assigneeId);
+      if (normalizedAssignee && verifiedMemberUserIds.has(normalizedAssignee)) {
+        const existing = memberTaskMap.get(normalizedAssignee);
+        if (existing) {
+          existing.push(task._id);
+        } else {
+          memberTaskMap.set(normalizedAssignee, [task._id]);
+        }
+      }
+    }
+  }
+
+  const orClauses: Record<string, unknown>[] = [
+    { actorId: membership.userId },
+  ];
+
+  for (const [memberId, taskIds] of memberTaskMap.entries()) {
+    orClauses.push({
+      actorId: memberId,
+      taskId: taskIds.length === 1 ? taskIds[0] : { $in: taskIds },
+    });
+  }
+
+  const activityFilter: Record<string, unknown> = {
+    projectId: project._id,
+  };
+
+  if (orClauses.length === 1) {
+    activityFilter.actorId = membership.userId;
+  } else {
+    activityFilter.$or = orClauses;
+  }
+
   return queryPaginatedActivities(
     membership.organizationId,
-    { projectId: project._id },
+    activityFilter,
     options,
   );
 }
@@ -5443,18 +5543,63 @@ export async function listTaskActivity(
   const project = await requireProjectInOrg(membership, projectId);
   const task = await requireTaskInProjectAndOrg(membership, project._id, taskId);
 
-  if (
-    !isManagerRole(membership.role) &&
-    task.assigneeId !== membership.userId
-  ) {
-    throw new TenantAccessError(
-      "Members can only view activity for tasks assigned to them.",
-    );
+  let activityFilter: Record<string, unknown>;
+
+  if (membership.role === "admin") {
+    // Admin: Can see all activity entries across all tasks within authorized organization
+    activityFilter = {
+      projectId: project._id,
+      taskId: task._id,
+    };
+  } else if (membership.role === "manager") {
+    // Manager: Can see:
+    // - Activity entries created by the Manager themselves on tasks they are authorized to manage.
+    // - Activity entries created by Members working under that Manager, on tasks assigned to those Members within the Manager's organization.
+    // - Cannot see activity entries created by other Managers or Admins.
+    const allowedActorIds: string[] = [membership.userId];
+
+    if (task.assigneeId) {
+      const { memberships } = await getCollections();
+      const assigneeMembership = await memberships.findOne(
+        {
+          organizationId: membership.organizationId,
+          userId: task.assigneeId,
+        },
+        { projection: { role: 1 } },
+      );
+
+      if (assigneeMembership && assigneeMembership.role === "member") {
+        allowedActorIds.push(task.assigneeId);
+      }
+    }
+
+    activityFilter = {
+      projectId: project._id,
+      taskId: task._id,
+      actorId:
+        allowedActorIds.length === 1
+          ? allowedActorIds[0]
+          : { $in: allowedActorIds },
+    };
+  } else {
+    // Member: Can see only activity entries created by that Member themselves,
+    // and only on tasks assigned to them.
+    if (task.assigneeId !== membership.userId) {
+      throw new TenantAccessError(
+        "Members can only view activity for tasks assigned to them.",
+      );
+    }
+
+    activityFilter = {
+      projectId: project._id,
+      taskId: task._id,
+      actorId: membership.userId,
+    };
   }
 
   return queryPaginatedActivities(
     membership.organizationId,
-    { projectId: project._id, taskId: task._id },
+    activityFilter,
     options,
   );
 }

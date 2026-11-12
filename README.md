@@ -1,384 +1,604 @@
-# Orchestr — Phase 8.5
-## File Upload, Media Management & Storage Infrastructure
+# Orchestr — Version 8.6
+## Post Phase 8.5 Improvements, Workflow Refinements & Activity Permissions
 
 **Project:** Orchestr  
-**Phase:** 8.5  
-**Status:** Implementation complete; live Backblaze B2 integration verification pending  
-**Storage Provider:** Backblaze B2 (S3-compatible API)  
-**Storage Access:** Private bucket with presigned URLs
+**Version:** 8.6  
+**Previous Phase:** 8.5 — File Upload and Media Management  
+**Focus:** Task usability, pagination, activity visibility, and authorization security  
+**Status:** Implementations completed; verification status documented individually.
 
 ---
 
-## 1. Overview
+# 1. Overview
 
-Phase 8.5 introduces secure file upload, storage, retrieval, preview, and deletion capabilities to Orchestr.
+Version 8.6 contains improvements implemented after Phase 8.5.
 
-The objective is to allow team members to submit work-related files directly through tasks and deliverables, while allowing Managers and Admins to review submitted materials.
+The purpose of this version is to improve task management usability, reduce unnecessary screen clutter, and strengthen activity visibility permissions across Members, Managers, and Admins.
 
-This phase extends Orchestr's task and deliverable workflow with file management capabilities without requiring users to rely exclusively on external file-sharing services.
+This version includes five major improvements:
 
-Google Drive links are also supported as external deliverable references.
+1. Subtask creation interface repair.
+2. Task-list pagination.
+3. Role-based Task Activity visibility.
+4. Role-based Project Activity visibility.
+5. Organization Activity access restrictions and TypeScript repair.
 
-## 2. Objectives
-
-- Provide secure file uploads for task deliverables.
-- Store files in private cloud storage.
-- Support multiple file formats.
-- Allow Members to upload files to their assigned tasks.
-- Allow Managers and Admins to preview and download submitted files.
-- Integrate uploaded files with deliverable submissions.
-- Support Google Drive links alongside uploaded files.
-- Prevent unauthorized access to stored files.
-- Clean up expired and unattached uploads.
-- Provide retryable file deletion when remote storage operations fail.
-
-## 3. Technology and Infrastructure
-
-| Component | Technology |
-|---|---|
-| Application | Next.js App Router |
-| Language | TypeScript |
-| Database | MongoDB Atlas |
-| Database Driver | Official MongoDB Node.js Driver |
-| Object Storage | Backblaze B2 |
-| Storage API | S3-compatible API |
-| Storage SDK | AWS SDK for JavaScript |
-| Authentication | Better Auth |
-| Validation | Zod |
-| File Access | Short-lived presigned URLs |
-
-### Storage configuration
-
-The application uses a private Backblaze B2 bucket.
-
-The configured storage setup uses:
-
-- Bucket: `orchestr-files`
-- Region: `eu-central-003`
-- Endpoint: `https://s3.eu-central-003.backblazeb2.com`
-- Bucket visibility: Private
-- Encryption: Backblaze-managed encryption
-- Object Lock: Disabled
-
-The application must not make the bucket publicly accessible.
-
-## 4. Architecture
-
-The file management architecture separates application authorization from object storage.
-
-### Upload workflow
-
-1. A Member selects files from a task.
-2. The application validates the user's permissions.
-3. The server validates file type, size, and filename.
-4. The server generates a short-lived presigned upload URL.
-5. The browser uploads the file directly to Backblaze B2.
-6. The client confirms the upload with the application.
-7. The server verifies the uploaded object using storage metadata.
-8. The file record is stored in MongoDB.
-9. The file can be associated with a deliverable submission.
-
-### Download workflow
-
-1. An authorized user requests a file.
-2. The server validates organization membership and file access permissions.
-3. The server generates a short-lived presigned download URL.
-4. The browser retrieves the file from private storage.
-
-### Important architectural principle
-
-The application server manages authorization and file metadata. The browser communicates directly with object storage for file transfer using temporary presigned URLs.
-
-Storage credentials must never be exposed to the browser.
-
-## 5. Supported File Types and Limits
-
-| File type | Maximum size |
-|---|---:|
-| JPG / JPEG | 25 MB |
-| PNG | 25 MB |
-| WebP | 25 MB |
-| PDF | 50 MB |
-| Office documents | 50 MB |
-| ZIP | 100 MB |
-| TAR.GZ / TGZ / GZ | 100 MB |
-| MP4 | 250 MB |
-| WebM | 250 MB |
-| MOV | 250 MB |
-
-Additional restrictions:
-
-- Maximum 10 files per deliverable.
-- Maximum combined deliverable size: 500 MB.
-- SVG files are excluded.
-- File names are sanitized before storage.
-- File type and size allowlists are enforced server-side.
-
-## 6. Implemented Features
-
-### 6.1 Storage infrastructure
-
-- Server-only Backblaze B2 storage client.
-- AWS S3-compatible SDK integration.
-- Explicit production storage configuration.
-- Private bucket access.
-- Presigned upload and download URLs.
-- Storage metadata verification.
-- File storage abstraction in `lib/storage.ts`.
-
-### 6.2 Secure file management
-
-The file management implementation includes:
-
-- File type validation.
-- File size validation.
-- Filename sanitization.
-- Presigned upload URL generation.
-- Upload confirmation.
-- Object existence verification.
-- File listing.
-- Authorized downloads.
-- File deletion.
-- Safe file metadata DTOs.
-- Organization-level access enforcement.
-
-### 6.3 Member upload interface
-
-The task interface supports:
-
-- File picker.
-- Drag-and-drop uploads.
-- Upload progress indicators.
-- Upload retries.
-- Upload confirmation.
-- Staging files before deliverable submission.
-- Multiple file uploads.
-
-### 6.4 Manager and Admin review interface
-
-Authorized reviewers can:
-
-- View submitted files.
-- Preview supported image files.
-- Preview PDF documents.
-- Preview supported video formats.
-- Download submitted files.
-- Review deliverables through the existing approval workflow.
-
-### 6.5 Google Drive integration
-
-Google Drive links can be included as deliverable references.
-
-The implementation recognizes Drive links and supports submissions combining uploaded files and external links.
-
-**Scope limitation:** This is link-based integration. Google OAuth and direct Google Drive API integration are not included.
-
-### 6.6 Expired upload cleanup
-
-The cleanup system handles expired and unattached pending uploads.
-
-It includes:
-
-- Expiration checks.
-- Cleanup leases.
-- Random lease tokens.
-- Concurrent worker protection.
-- Bounded retry attempts.
-- Idempotent handling of already-missing remote objects.
-
-### 6.7 Retryable deletion lifecycle
-
-A deletion lifecycle repair introduced the `deletion_pending` state.
-
-When a remote deletion fails or storage configuration is unavailable:
-
-- The database retains the file's storage metadata.
-- The file is marked `deletion_pending`.
-- The object is not incorrectly treated as deleted.
-- Cleanup can retry the remote deletion.
-- Storage metadata is cleared only after confirmed deletion.
-- Missing remote objects are treated as successful deletion when appropriate.
-
-This prevents orphaned remote files caused by prematurely marking failed deletions as complete.
-
-## 7. API Endpoints
-
-The implementation includes the following file-management API operations:
-
-| Operation | Endpoint |
-|---|---|
-| Generate upload URL | `/api/organizations/[slug]/files/upload-url` |
-| Confirm upload | `/api/organizations/[slug]/files/confirm` |
-| List files | `/api/organizations/[slug]/files` |
-| Download file | `/api/organizations/[slug]/files/[fileId]/download` |
-| Delete file | `/api/organizations/[slug]/files/[fileId]` |
-
-Deliverable submission APIs support associating uploaded file IDs with submissions.
-
-Exact HTTP methods and request schemas should be checked against the current route implementations.
-
-## 8. Database and File Lifecycle
-
-File metadata is stored in MongoDB. The actual file contents remain in Backblaze B2.
-
-The implementation uses file records and indexes to support:
-
-- Organization-scoped file access.
-- Pending upload tracking.
-- File association with deliverables.
-- Expired upload cleanup.
-- Retryable deletion.
-- Cleanup concurrency protection.
-
-### File lifecycle states
-
-| State | Meaning |
-|---|---|
-| Pending | Upload initiated but not yet confirmed |
-| Active | Upload confirmed and available for authorized use |
-| Deletion pending | Remote deletion needs retry |
-| Deleted | Remote deletion confirmed |
-
-The database retains the metadata required to retry failed remote deletion operations.
-
-## 9. Security
-
-Security requirements for Phase 8.5 include:
-
-1. Backblaze B2 bucket remains private.
-2. Storage credentials remain server-side.
-3. Presigned URLs are short-lived.
-4. Organization membership is checked before file access.
-5. Unauthorized users cannot retrieve protected files.
-6. File types and sizes are validated on the server.
-7. Filenames are sanitized.
-8. File metadata responses exclude sensitive storage credentials.
-9. Cleanup operations use leases and concurrency protection.
-10. Failed deletions retain the information needed for retries.
-
-### Environment variables
-
-Configure the following variables in the local environment:
-
-```env
-B2_KEY_ID=
-B2_APPLICATION_KEY=
-B2_ENDPOINT=
-B2_BUCKET_NAME=
-B2_REGION=
-```
-
-Supported fallback aliases:
-
-```env
-B2_APPLICATION_KEY_ID=
-B2_APPLICATION_KEY_SECRET=
-```
-
-Use the canonical variable names wherever possible.
-
-**Important:**
-- Never commit `.env.local`.
-- Never commit real storage credentials.
-- Keep `.env.example` limited to placeholders.
-- Never change the bucket to public access.
-- Production must use explicit bucket, region, and endpoint configuration.
-- Do not share credentials in chat, screenshots, or logs.
-
-## 10. CORS Configuration
-
-The private Backblaze B2 bucket requires suitable CORS configuration for browser-based transfers.
-
-The configured policy should:
-
-- Allow only the required application origins.
-- Support `PUT`, `GET`, and `HEAD`.
-- Expose the `ETag` response header.
-- Avoid wildcard origins in production.
-- Preserve private bucket visibility.
-
-Local development and production origins must be configured separately where necessary.
-
-## 11. Testing and Verification
-
-The implementation has undergone independent code-level verification.
-
-| Component | Reported result |
-|---|---|
-| Storage infrastructure | PASS |
-| Secure file APIs | PASS |
-| Member upload interface | PASS |
-| Manager/Admin review interface | PASS |
-| Google Drive link handling | PASS |
-| Pending upload cleanup | PASS |
-| Retryable deletion lifecycle | PASS |
-| TypeScript checks | PASS |
-| Lint checks | PASS, with a previously reported pre-existing image warning |
-| Production build | PASS |
-
-Independent verification also covered deletion concurrency, retry limits, lease-token protection, legacy file records, authorization, and metadata preservation.
-
-### Outstanding live integration verification
-
-**Real Backblaze B2 upload and download testing remains pending.**
-
-Code-level tests do not prove that the deployed or local environment can successfully communicate with the actual B2 bucket.
-
-The following still require live verification:
-
-- Correct credentials and environment configuration.
-- Browser upload through the actual B2 CORS policy.
-- Upload confirmation against the real object.
-- Authorized download and preview.
-- Actual remote deletion.
-- Retry behavior after a real storage failure.
-
-## 12. Known Scope Limitations
-
-Phase 8.5 does not include:
-
-- Google OAuth.
-- Direct Google Drive API integration.
-- Public file sharing.
-- A public storage bucket.
-- Advanced media editing.
-- Video transcoding.
-- Image processing pipelines.
-- Antivirus scanning.
-- Enterprise document management.
-- A dedicated background worker infrastructure.
-
-These may be considered separately if real usage demonstrates a need.
-
-## 13. Relationship With the Core Orchestr Workflow
-
-Phase 8.5 extends the existing task and deliverable workflow.
-
-The intended operational process is:
-
-1. Manager creates a project.
-2. Manager assigns tasks to Members.
-3. Members complete assigned work.
-4. Members upload files or provide Google Drive links.
-5. Members submit their deliverables.
-6. Managers or Admins preview and review submitted work.
-7. Reviewers approve or request changes.
-8. Task completion follows the existing deliverable approval rules.
-
-This keeps files connected to the work they represent rather than treating file storage as a separate system.
-
-## 14. Completion Summary
-
-Phase 8.5 establishes the foundation for secure file handling in Orchestr.
-
-The implemented capabilities cover storage infrastructure, secure upload and download APIs, Member upload UI, Manager/Admin review UI, Google Drive link recognition, pending upload cleanup, and retryable file deletion.
-
-**Implementation status:** Complete according to the reported independent code-verification results.
-
-**Remaining work:** Live Backblaze B2 integration verification and any production-specific configuration checks.
+These changes build on the existing Orchestr architecture without introducing a new database system or changing the underlying task and deliverable workflow.
 
 ---
 
-*Document: Orchestr Phase 8.5 README*  
-*Purpose: Technical documentation and project handover*  
-*Status reflects reported implementation and verification results, not an independently inspected live deployment.*
+# 2. Subtask Button and Form Visibility Repair
+
+## Problem
+
+Managers and Admins could click the `+ Subtask` button, but the interface appeared unresponsive.
+
+The underlying React state was updating correctly. However, the subtask creation form was rendered below several large sections:
+
+- Task Deliverables
+- Task Dependencies
+- Task Activity
+
+This placed the form hundreds of pixels below the visible viewport.
+
+As a result, users could click the button without seeing any visible response.
+
+## Implemented solution
+
+The subtask section and creation form were relocated directly beneath the parent task header.
+
+Additional improvements:
+
+- Added a form reference using `useRef`.
+- Added automatic scrolling using `scrollIntoView`.
+- Added automatic focus to the subtask title input.
+- Preserved the existing form validation.
+- Preserved entered data when creation fails.
+- Preserved cancellation behavior.
+
+## Role restrictions
+
+| Role | Create subtask |
+|---|---|
+| Member | Not allowed |
+| Manager | Allowed |
+| Admin | Allowed |
+
+Authorization is enforced at three levels:
+
+- UI visibility.
+- API authorization.
+- Service-layer authorization.
+
+Members cannot bypass the restriction by sending direct API requests.
+
+## Verification
+
+<badge color="success">Independently verified</badge>
+
+Reported verification results:
+
+- Manager and Admin form visibility: PASS.
+- Automatic focus and scrolling: PASS.
+- Subtask creation: PASS.
+- Validation and error preservation: PASS.
+- Member UI restriction: PASS.
+- Member API restriction: HTTP 403.
+- Existing task data preserved: PASS.
+- TypeScript, lint, and build: PASS.
+
+---
+
+# 3. Task Pagination — 10 Tasks Per Page
+
+## Objective
+
+Reduce screen clutter by limiting the number of top-level tasks displayed simultaneously.
+
+## Implemented behavior
+
+The primary project task list now displays a maximum of 10 top-level tasks per page.
+
+Pagination includes:
+
+- Previous button.
+- Next button.
+- Current page indicator.
+- Total page count.
+- Visible task range.
+- Correct final-page behavior.
+- Empty-result handling.
+
+Example:
+
+```text
+Showing 1–10 of 24 tasks
+
+[Previous]  Page 1 of 3  [Next]
+```
+
+## Pagination logic
+
+The implementation uses local React state:
+
+- `TASKS_PER_PAGE = 10`
+- `currentPage` tracks the selected page.
+- `totalPages` calculates the number of pages.
+- `paginatedTasks` contains the tasks displayed on the current page.
+
+Only the rendering of the existing top-level task collection is paginated.
+
+## Preserved functionality
+
+Pagination does not independently paginate:
+
+- Subtasks.
+- Deliverables.
+- Reviews.
+- Dependencies.
+- Blockers.
+- Activity history.
+
+Existing search, filtering, sorting, task counts, and task interactions are intended to remain unchanged.
+
+## Scope
+
+Only the primary project task-list component was modified.
+
+**File:**
+
+`app/dashboard/[slug]/projects/[projectId]/tasks-client.tsx`
+
+No changes were reported to:
+
+- Backend APIs.
+- Database collections.
+- Database schemas.
+- Database indexes.
+- Dashboard task lists.
+- Supervision task lists.
+
+## Verification status
+
+<badge color="warning">Independent verification pending</badge>
+
+Implementation was reported complete. The independent verification report for pagination has not yet been provided.
+
+---
+
+# 4. Role-Based Task Activity Visibility
+
+## Objective
+
+Restrict Task Activity visibility according to the user's organization role.
+
+The purpose is to prevent Members and Managers from seeing activity entries that they are not authorized to access.
+
+## 4.1 Member visibility
+
+Members can:
+
+- View Task Activity on tasks assigned to them.
+- See activity entries created by themselves.
+
+Members cannot see:
+
+- Manager-created activity.
+- Admin-created activity.
+- Activity created by other Members.
+- Task Activity belonging to another Member's assigned task.
+
+## 4.2 Manager visibility
+
+Managers can see:
+
+- Their own activity on authorized tasks.
+- Activity created by the Member assigned to the task, provided the Member belongs to the same organization.
+
+Managers cannot see:
+
+- Admin-created activity.
+- Activity created by other Managers.
+
+If a task is unassigned or assigned to another elevated role, the Manager sees only their own activity on that task.
+
+## 4.3 Admin visibility
+
+Organization Admins can see all Task Activity entries within their authorized organization.
+
+This includes activity created by:
+
+- Members.
+- Managers.
+- Admins.
+
+## Implementation
+
+The principal service function is:
+
+`listTaskActivity`
+
+Location:
+
+`lib/tenancy.ts`
+
+The task activity API uses authenticated session information and returns only authorized activity records.
+
+The filtering is performed server-side at the database query level.
+
+## Verification
+
+The later independent activity-permissions report confirmed:
+
+- Member sees only their own activity on their assigned task: PASS.
+- Member cannot access another Member's task activity: PASS.
+- Manager sees their own and assigned Member activity: PASS.
+- Admin activity is excluded from Manager results: PASS.
+- Admin sees all authorized task activity: PASS.
+- Direct API authorization: PASS.
+
+---
+
+# 5. Organization Activity Restrictions
+
+## Objective
+
+Prevent Managers and Members from accessing the Organization Activity timeline.
+
+Organization Activity is reserved for organization Admins.
+
+## Implemented behavior
+
+For Managers and Members:
+
+- Organization Activity section is hidden.
+- Initial activity requests are suppressed.
+- Refresh controls are unavailable.
+- Load More controls are unavailable.
+- Direct API requests are rejected.
+- Service-layer access is denied.
+
+For organization Admins:
+
+- Existing Organization Activity functionality is preserved.
+- All activity within the authorized organization remains visible.
+
+## Implementation
+
+Files modified:
+
+`app/dashboard/[slug]/projects-client.tsx`
+
+`app/api/organizations/[slug]/activity/route.ts`
+
+`lib/tenancy.ts`
+
+The UI checks the organization role before rendering Organization Activity.
+
+The API and service layers independently enforce Admin-only access.
+
+Unauthorized requests return:
+
+```http
+403 Forbidden
+```
+
+---
+
+# 6. Role-Based Project Activity Visibility
+
+## Objective
+
+Allow Managers to monitor their own work and the work performed by Members assigned to tasks within their projects, without exposing Admin or other Manager activity.
+
+## 6.1 Manager visibility
+
+Managers can see:
+
+- Activity created by themselves.
+- Activity created by Members assigned to tasks in the project.
+- Activity created by Members assigned to subtasks in the project.
+
+Managers cannot see:
+
+- Admin-created activity.
+- Activity created by other Managers.
+- Activity from unassigned Members.
+- Activity from Members assigned only to another project.
+- Activity from another organization.
+- Member activity without a verifiable task association.
+
+### Project-level activities without task association
+
+Examples include:
+
+- Project creation.
+- Project title changes.
+- Project description changes.
+- Project archiving.
+- Project unarchiving.
+
+Managers can see these activities only when they created them.
+
+## 6.2 Admin visibility
+
+Organization Admins retain complete Project Activity visibility within their authorized organization.
+
+## 6.3 Member visibility
+
+Member Project Activity access remains restricted under the existing authorization rules.
+
+The implementation preserves the existing HTTP 403 behavior for Members.
+
+## Implementation
+
+Primary service function:
+
+`listProjectActivity`
+
+Location:
+
+`lib/tenancy.ts`
+
+The service:
+
+1. Retrieves tasks and subtasks in the authorized project.
+2. Identifies assigned user IDs.
+3. Validates those users against organization memberships.
+4. Includes only users with the `member` role.
+5. Builds server-side MongoDB filters.
+6. Returns activity only from authorized actors and tasks.
+
+No new manager hierarchy or `managerId` field was introduced.
+
+The existing organization membership and task assignment model determines Manager visibility.
+
+---
+
+# 7. Cursor Pagination Security Repair
+
+During independent verification, an issue was identified in the existing activity cursor-pagination logic.
+
+## Problem
+
+A cursor condition could overwrite an existing top-level `$or` authorization filter.
+
+This could compromise the intended role-based filtering on subsequent activity pages.
+
+## Implemented solution
+
+Authorization and cursor conditions are combined using MongoDB `$and`.
+
+Conceptually:
+
+```typescript
+filter.$and = [
+  { $or: authorizationConditions },
+  { $or: cursorConditions }
+];
+```
+
+This preserves both conditions during pagination.
+
+## Expected behavior
+
+- Authorization applies to the first page.
+- Authorization applies to every subsequent page.
+- `hasMore` reflects authorized records only.
+- `nextCursor` is derived from authorized results.
+- Unauthorized activity cannot appear on later pages.
+- Authorized records are not duplicated or skipped during normal pagination.
+
+## Independent verification
+
+<badge color="success">PASS</badge>
+
+A Manager Project Activity test with seven authorized records was executed using a page limit of three.
+
+| Page | Records | hasMore |
+|---|---:|---|
+| Page 1 | 3 | true |
+| Page 2 | 3 | true |
+| Page 3 | 1 | false |
+
+Results:
+
+- Seven unique authorized records returned.
+- No skipped records.
+- No duplicate records.
+- Zero Admin activity leaks across cursor boundaries.
+
+---
+
+# 8. TypeScript Membership Query Repair
+
+The first independent verification identified a TypeScript compilation error in:
+
+`lib/tenancy.ts`
+
+Inside:
+
+`listProjectActivity`
+
+## Root cause
+
+The membership lookup used an array typed as:
+
+`Array<string | ObjectId>`
+
+However, the existing `MembershipDoc.userId` field is declared as a string.
+
+This caused MongoDB's TypeScript filter validation to fail with error TS2769.
+
+## Implemented solution
+
+The unnecessary `userIdMatchers` array and ObjectId conversion were removed.
+
+The existing normalized `candidateAssigneeIds` array is already `string[]`.
+
+The membership query now uses:
+
+```typescript
+userId: { $in: candidateAssigneeIds }
+```
+
+This matches the existing membership type.
+
+## Scope
+
+Only `lib/tenancy.ts` was changed for this repair.
+
+No activity authorization rules or database structures were intentionally changed.
+
+## Technical verification
+
+The implementation report provided these results:
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS |
+| `npm run lint` | PASS |
+| `npm run build` | PASS |
+
+Lint reported two pre-existing warnings in `tasks-client.tsx`.
+
+---
+
+# 9. Files Modified in Version 8.6
+
+The reported changes span the following files:
+
+| File | Purpose |
+|---|---|
+| `app/dashboard/[slug]/projects/[projectId]/tasks-client.tsx` | Subtask form relocation, subtask visibility, task pagination, Task Activity and Project Activity presentation |
+| `app/dashboard/[slug]/projects-client.tsx` | Organization Activity visibility |
+| `app/api/organizations/[slug]/activity/route.ts` | Organization Activity API authorization |
+| `app/api/organizations/[slug]/projects/[projectId]/activity/route.ts` | Project Activity API authorization |
+| `app/api/organizations/[slug]/projects/[projectId]/tasks/[taskId]/activity/route.ts` | Task Activity API authorization |
+| `lib/tenancy.ts` | Server-side activity authorization, filtering, pagination security, and membership query repair |
+
+The same file may have been modified in multiple implementation batches.
+
+This list represents the reported cumulative scope, not an independently inspected Git diff.
+
+---
+
+# 10. Security and Data Integrity
+
+The Version 8.6 changes prioritize server-side access control.
+
+Security characteristics include:
+
+- Session-derived user identity.
+- Verified organization membership.
+- Task assignment validation.
+- Server-side activity filtering.
+- Organization-scoped access.
+- Direct API authorization.
+- Protected cursor pagination.
+- Unauthorized activity excluded from response payloads.
+
+The implementation did not introduce a new activity database or delete existing activity records.
+
+The independent verification report confirmed:
+
+| Database item | Reported result |
+|---|---|
+| Tasks | 2, unchanged |
+| Activities | 10, unchanged |
+| Memberships | 4, unchanged |
+| Temporary test sessions | Cleaned up |
+
+No database schema or index changes were reported for these changes.
+
+---
+
+# 11. Regression Protection
+
+The following existing Orchestr functionality was intentionally preserved:
+
+- Task creation.
+- Task editing.
+- Task assignment.
+- Task status updates.
+- Subtask creation and display.
+- Deliverable uploads.
+- Deliverable submissions.
+- Deliverable reviews and approvals.
+- Task dependencies.
+- Prerequisite display.
+- Blocker functionality.
+- Meetings and action items.
+- Notifications.
+- File management from Phase 8.5.
+- Task Activity event generation.
+- Existing activity descriptions and timestamps.
+
+The changes are intended to affect task-list presentation and activity visibility, not the underlying business workflows.
+
+---
+
+# 12. Verification Status
+
+| Feature | Reported status |
+|---|---|
+| Subtask button repair | Independently verified PASS |
+| Member subtask restriction | Independently verified PASS |
+| Task pagination implementation | Implementation reported complete; independent verification pending |
+| Task Activity visibility | Independently verified in activity regression tests |
+| Manager Organization Activity restriction | Independently verified PASS |
+| Manager Project Activity filtering | Independently verified PASS |
+| Admin activity visibility | Independently verified PASS |
+| Member activity restrictions | Independently verified PASS |
+| Cursor pagination authorization | Independently verified PASS |
+| TypeScript repair | Reported PASS |
+| Lint | Reported PASS |
+| Production build | Reported PASS |
+
+**Important:** The pagination feature's independent verification is still pending. The post-TypeScript-repair command results were reported by the implementation agent; a separate independent rerun of all tests after that repair should not be assumed.
+
+---
+
+# 13. Scope Limitations
+
+Version 8.6 does not include:
+
+- A new organization hierarchy.
+- A dedicated Manager-to-Member relationship field.
+- A new activity event system.
+- Activity deletion or archival.
+- Changes to the Phase 8.5 storage architecture.
+- Google Drive OAuth or API integration.
+- A new database system.
+- A new notification framework.
+- A complete visual redesign.
+
+The existing membership and task assignment architecture continues to determine activity access.
+
+---
+
+# 14. Version 8.6 Completion Summary
+
+Version 8.6 builds on Phase 8.5 by improving the usability and security of Orchestr's existing task and activity workflows.
+
+The major improvements are:
+
+1. Repaired the Manager/Admin subtask creation interface.
+2. Restricted Member subtask creation.
+3. Introduced 10-task pagination in the primary project task list.
+4. Added role-based Task Activity visibility.
+5. Restricted Organization Activity to organization Admins.
+6. Introduced Manager-specific Project Activity filtering.
+7. Preserved Admin activity visibility.
+8. Secured cursor pagination against authorization filter overwrites.
+9. Repaired a TypeScript membership-query incompatibility.
+
+**Version:** 8.6  
+**Previous milestone:** Phase 8.5 — File Upload and Media Management  
+**Next planned phase:** Phase 8.6 — UI/UX Refinement
+
+---
+
+*Document: Version_8.6.md*  
+*Project: Orchestr*  
+*Purpose: Post-Phase 8.5 implementation documentation and technical handover*
